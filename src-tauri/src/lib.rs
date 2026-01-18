@@ -40,6 +40,9 @@ pub fn run() {
             commands::delete_mcp_server,
             commands::toggle_mcp_server,
             commands::sync_mcp_config,
+            commands::get_recommended_mcp_servers,
+            commands::add_recommended_mcp_servers,
+            commands::check_mcp_server_health,
             // Status commands
             commands::get_status,
             commands::get_version,

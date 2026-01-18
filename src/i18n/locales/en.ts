@@ -161,7 +161,32 @@ export default {
     statusEnabled: 'Enabled',
     statusDisabled: 'Disabled',
     command: 'Command',
-    url: 'URL'
+    url: 'URL',
+    // New
+    addRecommended: 'Add Recommended MCP',
+    addCustom: 'Custom Add',
+    installing: 'Adding...',
+    recommended: 'Recommended MCP Servers',
+    addSelected: 'Add Selected ({count})',
+    addAll: 'Add All',
+    serverAdded: 'Added {count} server(s)',
+    serverSkipped: '{count} server(s) already exist, skipped',
+    visitSite: 'Visit Website',
+    // Custom MCP
+    customTitle: 'Custom Add MCP',
+    customName: 'Server Name',
+    customNamePlaceholder: 'e.g. my-mcp-server',
+    customConfig: 'JSON Configuration',
+    customConfigHint: 'Supports OpenCode format: command, args, env, type',
+    customNameRequired: 'Please enter server name',
+    customJsonInvalid: 'Invalid JSON format',
+    customCommandRequired: 'Please configure command or args',
+    customAdded: 'Added {name}',
+    // Sync
+    syncToOpenCode: 'Sync to OpenCode',
+    syncing: 'Syncing...',
+    syncSuccess: 'Synced to ~/.opencode/opencode.json',
+    syncFailed: 'Sync failed'
   },
 
   // Backup page

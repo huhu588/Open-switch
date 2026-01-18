@@ -69,7 +69,7 @@ onMounted(async () => {
   try {
     version.value = await invoke<string>('get_version')
   } catch (e) {
-    version.value = '0.7.0'
+    version.value = '1.0.0'
   }
 })
 </script>

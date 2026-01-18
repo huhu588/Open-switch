@@ -161,7 +161,32 @@ export default {
     statusEnabled: '已启用',
     statusDisabled: '已禁用',
     command: '命令',
-    url: 'URL'
+    url: 'URL',
+    // 新增
+    addRecommended: '添加推荐 MCP',
+    addCustom: '自定义添加',
+    installing: '添加中...',
+    recommended: '推荐 MCP 服务器',
+    addSelected: '添加选中 ({count})',
+    addAll: '添加全部',
+    serverAdded: '已添加 {count} 个服务器',
+    serverSkipped: '{count} 个服务器已存在，已跳过',
+    visitSite: '访问官网',
+    // 自定义MCP
+    customTitle: '自定义添加 MCP',
+    customName: '服务器名称',
+    customNamePlaceholder: '例如: my-mcp-server',
+    customConfig: 'JSON 配置',
+    customConfigHint: '支持 OpenCode 格式: command, args, env, type',
+    customNameRequired: '请输入服务器名称',
+    customJsonInvalid: 'JSON 格式无效',
+    customCommandRequired: '请配置 command 或 args',
+    customAdded: '已添加 {name}',
+    // 同步
+    syncToOpenCode: '同步到 OpenCode',
+    syncing: '同步中...',
+    syncSuccess: '已同步到 ~/.opencode/opencode.json',
+    syncFailed: '同步失败'
   },
 
   // 备份页面

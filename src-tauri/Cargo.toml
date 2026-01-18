@@ -1,6 +1,6 @@
 [package]
 name = "open-switch"
-version = "0.7.0"
+version = "1.0.0"
 edition = "2021"
 description = "Open Switch - Coding Agent 配置管理工具"
 authors = ["moguw <weiyiding0@gmail.com>"]
