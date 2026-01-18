@@ -4,27 +4,23 @@ This file provides guidance to WARP (warp.dev) when working with code in this re
 
 ## 项目概述
 
-`opcd` 是一个 Rust CLI 工具，用于管理 OpenCode 的 Provider 和 Model 配置。支持 TUI 交互界面和命令行模式。
+`Open Switch` 是一个 Tauri 桌面应用，用于管理 OpenCode 的 Provider 和 Model 配置。
 
 ## 常用命令
 
 ```bash
+# 安装依赖
+npm install
+
+# 开发模式
+npm run tauri dev
+
 # 构建
-cargo build
-cargo build --release
+npm run tauri build
 
-# 运行
-cargo run              # 启动 TUI 交互界面
-cargo run -- status    # 查看当前配置状态
-cargo run -- export opencode  # 导出配置到当前项目
-
-# 测试
-cargo test
-cargo test -- --nocapture  # 显示测试输出
-
-# 代码检查
-cargo clippy
-cargo fmt --check
+# 前端预览
+npm run dev
+npm run build
 ```
 
 ## 架构概览
@@ -32,43 +28,42 @@ cargo fmt --check
 ### 模块结构
 
 ```
-src/
-├── main.rs          # 入口，CLI 命令分发
-├── cli.rs           # Clap CLI 定义
-├── error.rs         # 错误类型定义
-├── config/          # 配置管理层
-│   ├── manager.rs         # 核心配置管理器，协调各子管理器
-│   ├── opencode_manager.rs # OpenCode Provider/Model 配置管理
-│   ├── mcp_manager.rs      # MCP 服务器配置管理
-│   ├── models.rs           # 数据结构定义 (GlobalConfig, OpenCodeConfig 等)
-│   └── detector.rs         # 站点检测功能
-├── tui/             # TUI 界面层 (基于 Ratatui)
-│   ├── app.rs       # App 状态机核心，管理所有 UI 状态
-│   ├── handlers/    # 键盘事件处理 (global.rs)
-│   ├── ui/          # UI 渲染
-│   │   ├── layout.rs       # 主布局渲染
-│   │   └── components/     # UI 组件 (对话框、表单等)
-│   ├── types.rs     # TUI 类型定义 (AppTab, InputMode 等)
-│   └── theme/       # 主题配置
-└── utils/           # 工具函数 (输出格式化)
+src/                     # 前端代码 (Vue 3 + TypeScript)
+├── main.ts              # Vue 入口
+├── App.vue              # 根组件
+├── components/          # Vue 组件
+├── views/               # 页面视图
+├── stores/              # Pinia 状态管理
+├── router/              # Vue Router
+├── config/              # 配置预设
+├── types/               # TypeScript 类型
+├── i18n/                # 国际化
+└── styles/              # 样式文件
+
+src-tauri/               # 后端代码 (Rust + Tauri)
+├── src/
+│   ├── main.rs          # Tauri 入口
+│   ├── lib.rs           # 库入口
+│   ├── error.rs         # 错误类型定义
+│   ├── commands/        # Tauri 命令
+│   └── config/          # 配置管理
+└── tauri.conf.json      # Tauri 配置
 ```
 
 ### 核心数据流
 
-1. **ConfigManager** (`config/manager.rs`) 是配置管理的核心入口
-   - 管理全局配置 `~/.opcd/config.json`
-   - 持有 `OpenCodeConfigManager` 和 `McpConfigManager` 子管理器
-   - 处理配置的读写、验证和同步
+1. **Tauri Commands** (`src-tauri/src/commands/`) 是前后端通信的桥梁
+   - 前端通过 `@tauri-apps/api` 调用后端命令
+   - 后端处理配置读写和系统操作
 
 2. **配置层级**
-   - 全局配置: `~/.opcd/` 目录
+   - 全局配置: `~/.opencode/opencode.json`
    - 项目配置: `./.opencode/opencode.json` (当前目录)
    - 项目配置优先于全局配置
 
-3. **TUI 状态管理** (`tui/app.rs`)
-   - `App` 结构体维护所有 UI 状态
-   - 使用 `InputMode` 区分导航/编辑模式
-   - `AppTab` 定义 Tab 页切换 (Providers, MCP, Backup, Status)
+3. **前端状态管理** (`src/stores/`)
+   - 使用 Pinia 管理应用状态
+   - `providers.ts` 管理 Provider 和 Model 数据
 
 ### 关键类型
 
@@ -78,7 +73,7 @@ src/
 
 ## 开发注意事项
 
-- TUI 使用 Ratatui 框架，事件循环在 `tui/mod.rs`
-- 所有键盘事件处理在 `tui/handlers/global.rs`
-- 配置文件使用 JSON 格式，序列化使用 serde
+- 前端使用 Vue 3 Composition API
+- 样式使用 Tailwind CSS
+- 配置文件使用 JSON 格式，Rust 端用 serde 序列化
 - 异步操作使用 tokio 运行时

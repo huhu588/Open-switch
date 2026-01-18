@@ -1,5 +1,5 @@
 // MCP 配置管理器
-// 负责管理 ~/.opcd/mcp/ 目录下的多个 JSON 文件，并同步到 opencode.json
+// 负责管理 ~/.Open Switch/mcp/ 目录下的多个 JSON 文件，并同步到 opencode.json
 
 use crate::config::models::{McpConfig, McpOAuthConfig, McpServer, McpServerType};
 use crate::config::ConfigError;
@@ -9,9 +9,9 @@ use std::fs;
 use std::path::PathBuf;
 
 /// MCP 配置管理器
-/// 采用目录模式：~/.opcd/mcp/ 下每个服务器一个 JSON 文件
+/// 采用目录模式：~/.Open Switch/mcp/ 下每个服务器一个 JSON 文件
 pub struct McpConfigManager {
-    mcp_dir: PathBuf,       // ~/.opcd/mcp/
+    mcp_dir: PathBuf,       // ~/.Open Switch/mcp/
     opencode_dir: PathBuf,  // ~/.opencode
     opencode_json: PathBuf, // ~/.opencode/opencode.json
 }

@@ -70,17 +70,57 @@ impl GlobalConfig {
 // OpenCode 配置 (opencode.json)
 // ============================================================================
 
-/// OpenCode 配置文件结构
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OpenCodeConfig {
-    #[serde(default = "default_opencode_version")]
-    pub version: String,
-    #[serde(default)]
-    pub providers: HashMap<String, OpenCodeProvider>,
+/// 工具配置
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct OpenCodeTools {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub write: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bash: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub read: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edit: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub glob: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grep: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub webfetch: Option<bool>,
 }
 
-fn default_opencode_version() -> String {
-    "3.0.0".to_string()
+/// 权限配置
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct OpenCodePermission {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub webfetch: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edit: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skill: Option<String>,
+}
+
+/// OpenCode 配置文件结构 (匹配新版 opencode 格式)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpenCodeConfig {
+    #[serde(rename = "$schema", default = "default_schema", skip_serializing_if = "Option::is_none")]
+    pub schema: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub theme: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub autoupdate: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tools: Option<OpenCodeTools>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permission: Option<OpenCodePermission>,
+    #[serde(default)]
+    pub provider: HashMap<String, OpenCodeProvider>,
+}
+
+fn default_schema() -> Option<String> {
+    Some("https://opencode.ai/config.json".to_string())
 }
 
 /// OpenCode Provider 配置 (匹配真实 opencode.json 格式)
@@ -89,6 +129,9 @@ pub struct OpenCodeProvider {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub npm: Option<String>, // 如: "@ai-sdk/openai-compatible"
     pub name: String,
+    // model_type 用于内部分类（同步到 opencode 时会被移除）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_type: Option<String>, // 模型厂家: claude, codex, gemini
     pub options: OpenCodeProviderOptions,
     pub models: HashMap<String, OpenCodeModelInfo>,
     // 内部元数据 (不同步到 opencode.json)
@@ -114,15 +157,18 @@ pub struct OpenCodeProviderOptions {
 pub struct ProviderMetadata {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_type: Option<String>,
     #[serde(default = "default_timestamp")]
     pub created_at: String,
     #[serde(default = "default_timestamp")]
     pub updated_at: String,
 }
 
-/// 模型信息 (匹配真实格式)
+/// 模型信息 (匹配新版 opencode 格式)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OpenCodeModelInfo {
+    pub id: String,
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub limit: Option<OpenCodeModelLimit>,
@@ -168,29 +214,33 @@ impl OpenCodeConfig {
     /// 创建新的 OpenCode 配置
     pub fn new() -> Self {
         Self {
-            version: "3.0.0".to_string(),
-            providers: HashMap::new(),
+            schema: default_schema(),
+            theme: Some("opencode".to_string()),
+            autoupdate: Some(true),
+            tools: None,
+            permission: None,
+            provider: HashMap::new(),
         }
     }
 
     /// 获取 Provider
     pub fn get_provider(&self, provider_name: &str) -> Option<&OpenCodeProvider> {
-        self.providers.get(provider_name)
+        self.provider.get(provider_name)
     }
 
     /// 获取可变 Provider
     pub fn get_provider_mut(&mut self, provider_name: &str) -> Option<&mut OpenCodeProvider> {
-        self.providers.get_mut(provider_name)
+        self.provider.get_mut(provider_name)
     }
 
     /// 添加 Provider
     pub fn add_provider(&mut self, provider_name: String, provider: OpenCodeProvider) {
-        self.providers.insert(provider_name, provider);
+        self.provider.insert(provider_name, provider);
     }
 
     /// 删除 Provider
     pub fn remove_provider(&mut self, provider_name: &str) -> Option<OpenCodeProvider> {
-        self.providers.remove(provider_name)
+        self.provider.remove(provider_name)
     }
 }
 
@@ -202,20 +252,37 @@ impl Default for OpenCodeConfig {
 
 impl OpenCodeProvider {
     /// 创建新的 Provider
+    /// npm 包会根据 model_type 自动选择：
+    /// - Claude -> @ai-sdk/anthropic
+    /// - Codex/Gemini -> @ai-sdk/openai
     pub fn new(
         name: String,
         base_url: String,
         api_key: String,
         npm: Option<String>,
         description: Option<String>,
+        model_type: Option<String>,
     ) -> Self {
+        // 根据 model_type 自动选择正确的 npm 包
+        let resolved_npm = npm.or_else(|| {
+            model_type.as_ref().map(|mt| {
+                match mt.to_lowercase().as_str() {
+                    "claude" => "@ai-sdk/anthropic".to_string(),
+                    "codex" | "gemini" => "@ai-sdk/openai".to_string(),
+                    _ => "@ai-sdk/anthropic".to_string(), // 默认
+                }
+            })
+        });
+
         Self {
-            npm,
+            npm: resolved_npm,
             name,
+            model_type, // 顶级字段，会被序列化到配置文件
             options: OpenCodeProviderOptions { base_url, api_key },
             models: HashMap::new(),
             metadata: ProviderMetadata {
                 description,
+                model_type: None, // 已移到顶级
                 created_at: default_timestamp(),
                 updated_at: default_timestamp(),
             },
@@ -700,8 +767,8 @@ mod tests {
     #[test]
     fn test_opencode_config_creation() {
         let config = OpenCodeConfig::new();
-        assert_eq!(config.version, "3.0.0");
-        assert!(config.providers.is_empty());
+        assert!(config.schema.is_some());
+        assert!(config.provider.is_empty());
     }
 
     #[test]

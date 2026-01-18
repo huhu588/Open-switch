@@ -1,4 +1,4 @@
-// opcd Tauri 库入口
+// Open Switch Tauri 库入口
 
 pub mod commands;
 pub mod config;
@@ -24,6 +24,7 @@ pub fn run() {
             commands::add_provider,
             commands::update_provider,
             commands::delete_provider,
+            commands::check_provider_applied,
             commands::apply_config,
             // Model commands
             commands::get_models,

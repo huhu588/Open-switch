@@ -1,4 +1,4 @@
-# opcd - OpenCode 配置管理工具
+# Open Switch - OpenCode 配置管理工具
 
 OpenCode 配置管理工具，支持多 Provider 和 Model 管理
 
@@ -6,22 +6,17 @@ OpenCode 配置管理工具，支持多 Provider 和 Model 管理
 
 - OpenCode
 
-## 安装
+## 开发
 
 ```bash
-cargo install opcd
+npm install
+npm run tauri dev
 ```
 
-## 使用
+## 构建
 
 ```bash
-# TUI 交互式界面（默认）
-opcd
-
-# 其他
-opcd backup   # 备份恢复
-opcd status   # 查看状态
-opcd export   # 导出配置
+npm run tauri build
 ```
 
 ## 功能
@@ -29,7 +24,7 @@ opcd export   # 导出配置
 - 🔄 多 Provider 配置管理
 - 🤖 模型列表管理与站点检测
 - 💾 WebDAV 云同步备份
-- 🎨 现代化 TUI 交互界面（三栏布局）
+- 🎨 现代化桌面应用界面
 - 📁 项目配置优先（可独立管理项目级配置）
 - 🔧 MCP 服务器配置管理
 
@@ -37,59 +32,18 @@ opcd export   # 导出配置
 
 ### 配置层级
 
-opcd 支持两级配置管理：
+Open Switch 支持两级配置管理：
 
 1. **项目配置** - 存储在 `./.opencode/opencode.json`，仅作用于当前项目
-2. **全局配置** - 存储在 `~/.opcd/`，作用于所有项目
+2. **全局配置** - 存储在 `~/.Open Switch/`，作用于所有项目
 
 ### 应用配置
 
-在 Provider 列表按 `Enter` 进入多选模式，选择后按 `Enter` 确认，会弹出应用范围选择对话框：
+在 Provider 列表选择后确认，会弹出应用范围选择对话框：
 
-```
-▶ 当前项目 ./.opencode/    ← 项目配置优先
-  全局配置 ~/.opencode/
-  两者都应用
-```
-
-选择 "当前项目" 仅更新项目配置，选择 "全局配置" 仅更新全局配置，选择 "两者都应用" 则同时更新两级配置。
-
-## TUI 界面
-
-### 三栏布局
-
-```
-┌──────────┬─────────────┬───────────────────────────┐
-│ Provider │   Models    │         详情面板          │
-│  (25%)   │   (30%)     │         (45%)             │
-└──────────┴─────────────┴───────────────────────────┘
-```
-
-### 快捷键
-
-| 按键 | 功能 |
-|------|------|
-| `h` / `l` | 切换面板焦点 (Provider ↔ Model) |
-| `j` / `k` | 上下导航 |
-| `a` | 添加 Provider / Model（根据焦点） |
-| `e` | 编辑 Provider |
-| `d` | 删除 Provider / Model（根据焦点） |
-| `Enter` | 进入多选应用模式 |
-| `/` | 搜索模型 |
-| `t` | 获取站点可用模型 |
-| `Tab` | 切换 Tab 页 |
-| `?` | 显示帮助 |
-| `q` / `Esc` | 退出 |
-
-### MCP 管理
-
-| 按键 | 功能 |
-|------|------|
-| `m` | 切换到 MCP 服务器列表 |
-| `a` | 添加 MCP 服务器 |
-| `e` | 编辑 MCP 服务器 |
-| `d` | 删除 MCP 服务器 |
-| `Enter` | 应用 MCP 配置 |
+- **当前项目** - 仅更新项目配置 `./.opencode/`
+- **全局配置** - 仅更新全局配置 `~/.opencode/`
+- **两者都应用** - 同时更新两级配置
 
 ## License
 

@@ -68,6 +68,7 @@ pub fn add_model(
     };
     
     let model_info = OpenCodeModelInfo {
+        id: input.id.clone(),
         name: input.name.unwrap_or_else(|| input.id.clone()),
         limit,
         model_detection: None,
@@ -90,7 +91,30 @@ pub fn delete_model(
     Ok(())
 }
 
+/// Claude 预设模型列表 (Anthropic 协议使用)
+const CLAUDE_PRESET_MODELS: &[&str] = &[
+    "claude-4-sonnet",
+    "claude-4.1-opus",
+    "claude-4.5-haiku",
+    "claude-4.5-opus",
+    "claude-4.5-sonnet",
+];
+
+/// 检测是否为 Anthropic 协议 URL
+fn is_anthropic_protocol(base_url: &str) -> bool {
+    let url_lower = base_url.to_lowercase();
+    // 检测 URL 中是否包含 anthropic 关键字
+    url_lower.contains("anthropic") || 
+    url_lower.contains("api.anthropic.com") ||
+    // 常见的 Anthropic 协议中转服务
+    url_lower.contains("packyapi.com") ||
+    url_lower.contains("cubence.com") ||
+    url_lower.contains("aigocode.com")
+}
+
 /// 从站点获取可用模型列表
+/// - Anthropic 协议: 返回预设的 Claude 模型列表
+/// - OpenAI 协议: 调用 /v1/models API 获取
 #[tauri::command]
 pub async fn fetch_site_models(
     provider_name: String,
@@ -106,7 +130,13 @@ pub async fn fetch_site_models(
         (provider.options.base_url.clone(), provider.options.api_key.clone())
     };
     
-    // 调用检测器获取模型列表
+    // 检测是否为 Anthropic 协议
+    if is_anthropic_protocol(&base_url) {
+        // Anthropic 协议: 直接返回预设的 Claude 模型列表
+        return Ok(CLAUDE_PRESET_MODELS.iter().map(|s| s.to_string()).collect());
+    }
+    
+    // OpenAI 协议: 调用检测器获取模型列表
     let detector = Detector::new();
     let result = detector.detect_site(&base_url, &api_key).await;
     
@@ -130,6 +160,7 @@ pub fn add_models_batch(
     
     for model_id in model_ids {
         let model_info = OpenCodeModelInfo {
+            id: model_id.clone(),
             name: model_id.clone(),
             limit: None,
             model_detection: None,

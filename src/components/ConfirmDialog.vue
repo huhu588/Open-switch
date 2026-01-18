@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
+
 interface Props {
   visible: boolean
   title?: string
@@ -9,10 +13,6 @@ interface Props {
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  title: '确认',
-  message: '确定要执行此操作吗？',
-  confirmText: '确认',
-  cancelText: '取消',
   danger: false
 })
 
@@ -41,31 +41,31 @@ function cancel() {
   <Teleport to="body">
     <Transition name="fade">
       <div v-if="visible" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" @click.self="cancel">
-        <div class="w-full max-w-sm rounded-xl bg-cream-50 dark:bg-dark-800 border border-cream-300 dark:border-dark-700 shadow-xl animate-slide-up">
+        <div class="w-full max-w-sm rounded-xl bg-background border border-border shadow-xl animate-slide-up">
           <!-- 标题 -->
-          <div class="px-5 py-4 border-b border-cream-300 dark:border-dark-700">
-            <h3 class="font-semibold text-lg">{{ title }}</h3>
+          <div class="px-5 py-4 border-b border-border">
+            <h3 class="font-semibold text-lg">{{ title || t('confirm.title') }}</h3>
           </div>
 
           <!-- 内容 -->
           <div class="px-5 py-4">
-            <p class="text-sm text-primary-600 dark:text-dark-300">{{ message }}</p>
+            <p class="text-sm text-muted-foreground">{{ message || t('confirm.defaultMessage') }}</p>
           </div>
 
           <!-- 按钮 -->
-          <div class="px-5 py-4 flex justify-end gap-3 border-t border-cream-300 dark:border-dark-700">
+          <div class="px-5 py-4 flex justify-end gap-3 border-t border-border">
             <button
               @click="cancel"
-              class="px-4 py-2 text-sm font-medium rounded-lg border border-cream-400 dark:border-dark-600 hover:bg-cream-200 dark:hover:bg-dark-700 transition-colors"
+              class="px-4 py-2 text-sm font-medium rounded-lg border border-border hover:bg-surface-hover transition-colors"
             >
-              {{ cancelText }}
+              {{ cancelText || t('common.cancel') }}
             </button>
             <button
               @click="confirm"
               class="px-4 py-2 text-sm font-medium rounded-lg text-white transition-colors"
               :class="danger ? 'bg-error-500 hover:bg-error-600' : 'bg-accent-500 hover:bg-accent-600'"
             >
-              {{ confirmText }}
+              {{ confirmText || t('common.confirm') }}
             </button>
           </div>
         </div>

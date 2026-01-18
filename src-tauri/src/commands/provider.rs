@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 use std::sync::Mutex;
 
-use crate::config::{ConfigManager, OpenCodeProvider};
+use crate::config::ConfigManager;
 use crate::error::AppError;
 
 /// Provider 列表项（传递给前端）
@@ -14,6 +14,24 @@ pub struct ProviderItem {
     pub base_url: String,
     pub model_count: usize,
     pub description: Option<String>,
+    pub model_type: String,
+}
+
+/// Provider 详情（传递给前端）
+#[derive(Debug, Clone, Serialize)]
+pub struct ProviderDetail {
+    pub name: String,
+    pub npm: Option<String>,
+    pub model_type: Option<String>,
+    pub options: ProviderOptions,
+    pub models: std::collections::HashMap<String, crate::config::OpenCodeModelInfo>,
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ProviderOptions {
+    pub base_url: String,
+    pub api_key: String,
 }
 
 /// 添加/编辑 Provider 的参数
@@ -24,6 +42,7 @@ pub struct ProviderInput {
     pub base_url: String,
     pub npm: Option<String>,
     pub description: Option<String>,
+    pub model_type: Option<String>,
 }
 
 /// 应用配置的参数
@@ -49,6 +68,8 @@ pub fn get_providers(
             base_url: provider.options.base_url.clone(),
             model_count: provider.models.len(),
             description: provider.metadata.description.clone(),
+            // 从顶级字段读取 model_type
+            model_type: provider.model_type.clone().unwrap_or_else(|| "claude".to_string()),
         })
         .collect();
     
@@ -63,9 +84,21 @@ pub fn get_providers(
 pub fn get_provider(
     name: String,
     config_manager: State<'_, Mutex<ConfigManager>>,
-) -> Result<Option<OpenCodeProvider>, AppError> {
+) -> Result<Option<ProviderDetail>, AppError> {
     let manager = config_manager.lock().map_err(|e| AppError::Custom(e.to_string()))?;
-    Ok(manager.opencode().get_provider(&name)?)
+    let provider = manager.opencode().get_provider(&name)?;
+    
+    Ok(provider.map(|p| ProviderDetail {
+        name: p.name.clone(),
+        npm: p.npm.clone(),
+        model_type: p.model_type.clone(),
+        options: ProviderOptions {
+            base_url: p.options.base_url.clone(),
+            api_key: p.options.api_key.clone(),
+        },
+        models: p.models.clone(),
+        description: p.metadata.description.clone(),
+    }))
 }
 
 /// 添加新 Provider
@@ -81,6 +114,7 @@ pub fn add_provider(
         input.api_key,
         input.npm,
         input.description,
+        input.model_type,
     )?;
     Ok(())
 }
@@ -112,6 +146,26 @@ pub fn delete_provider(
     let mut manager = config_manager.lock().map_err(|e| AppError::Custom(e.to_string()))?;
     manager.opencode_mut().delete_provider(&name)?;
     Ok(())
+}
+
+/// 检查 Provider 是否已应用到全局/项目配置
+#[derive(Debug, Serialize)]
+pub struct AppliedStatus {
+    pub in_global: bool,
+    pub in_project: bool,
+}
+
+#[tauri::command]
+pub fn check_provider_applied(
+    provider_name: String,
+    config_manager: State<'_, Mutex<ConfigManager>>,
+) -> Result<AppliedStatus, AppError> {
+    let manager = config_manager.lock().map_err(|e| AppError::Custom(e.to_string()))?;
+    let status = manager.check_provider_applied(&provider_name)?;
+    Ok(AppliedStatus {
+        in_global: status.0,
+        in_project: status.1,
+    })
 }
 
 /// 应用配置到全局/项目

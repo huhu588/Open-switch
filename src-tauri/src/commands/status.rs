@@ -75,7 +75,7 @@ pub fn get_status(
         provider_count,
         mcp_server_count,
         config_paths: ConfigPaths {
-            global_config_dir: format!("{}/.opcd", home_dir),
+            global_config_dir: format!("{}/.Open Switch", home_dir),
             global_opencode_dir: format!("{}/.opencode", home_dir),
             project_opencode_dir: current_dir,
         },

@@ -11,7 +11,8 @@ bun.lock
 package-lock.json
 
 # Config files with sensitive data
-.opencode/opencode.json
+.opencode/
+src-tauri/.opencode/
 
 # IDE
 .vscode/

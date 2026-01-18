@@ -1,36 +1,45 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed, watchEffect } from 'vue'
 import { useRoute } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { invoke } from '@tauri-apps/api/core'
+import LanguageSwitch from '@/components/LanguageSwitch.vue'
 
 const route = useRoute()
+const { t, locale } = useI18n()
+
+// 动态更新文档标题
+watchEffect(() => {
+  document.title = t('app.title')
+  document.documentElement.lang = locale.value === 'zh-CN' ? 'zh-CN' : 'en'
+})
 
 // Theme state
 const isDark = ref(true)
 
 // Navigation
-const navItems = [
+const navItems = computed(() => [
   { 
-    name: 'Providers', 
+    name: t('nav.providers'), 
     path: '/', 
     icon: 'M4 7h16M4 7l2-4h12l2 4M4 7v13h16V7M9 11v5M15 11v5' // Box/Server icon
   },
   { 
-    name: 'MCP', 
+    name: t('nav.mcp'), 
     path: '/mcp', 
     icon: 'M4 17l6-6-6-6M12 19h8' // Terminal/Code icon
   },
   { 
-    name: 'Backup', 
+    name: t('nav.backup'), 
     path: '/backup', 
     icon: 'M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z M17 21v-8H7v8 M7 3v5h8' // Save/Floppy
   },
   { 
-    name: 'Status', 
+    name: t('nav.status'), 
     path: '/status', 
     icon: 'M22 12h-4l-3 9L9 3l-3 9H2' // Activity
   },
-]
+])
 
 const version = ref('')
 
@@ -126,8 +135,9 @@ onMounted(async () => {
         </router-link>
       </nav>
 
-      <!-- Footer / Theme Toggle -->
-      <div class="p-4 border-t border-border/50">
+      <!-- Footer / Language & Theme Toggle -->
+      <div class="p-4 border-t border-border/50 space-y-2">
+        <LanguageSwitch />
         <button
           @click="toggleTheme"
           class="flex w-full items-center justify-between rounded-md border border-border bg-background/50 px-3 py-2 text-xs font-medium transition-all hover:border-accent/40 hover:bg-surface-hover active:scale-[0.98]"
@@ -136,7 +146,7 @@ onMounted(async () => {
             <svg v-if="isDark" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
             <svg v-else xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
             <span class="text-muted-foreground group-hover:text-primary transition-colors">
-              {{ isDark ? 'Dark Mode' : 'Light Mode' }}
+              {{ isDark ? t('system.darkMode') : t('system.lightMode') }}
             </span>
           </div>
           <div class="h-3 w-6 rounded-full bg-surface-hover border border-border p-0.5 transition-colors group-hover:border-accent/50 relative">
@@ -161,7 +171,7 @@ onMounted(async () => {
               <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
               <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
             </span>
-            <span class="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">System Operational</span>
+            <span class="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">{{ t('system.operational') }}</span>
           </div>
         </div>
       </header>

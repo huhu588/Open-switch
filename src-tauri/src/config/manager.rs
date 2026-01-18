@@ -10,7 +10,7 @@ use std::path::PathBuf;
 
 /// 核心配置管理器
 pub struct ConfigManager {
-    global_config_file: PathBuf, // ~/.opcd/config.json
+    global_config_file: PathBuf, // ~/.Open Switch/config.json
     opencode_manager: OpenCodeConfigManager,
     mcp_manager: McpConfigManager,
 }
@@ -21,7 +21,7 @@ impl ConfigManager {
         let home_dir = dirs::home_dir().ok_or_else(|| ConfigError::NotFound {
             name: "用户主目录".to_string(),
         })?;
-        let config_dir = home_dir.join(".opcd");
+        let config_dir = home_dir.join(".Open Switch");
         let global_config_file = config_dir.join("config.json");
 
         // 确保配置目录存在
@@ -158,6 +158,49 @@ impl ConfigManager {
             .sync_multiple_providers_to_project(provider_names)?;
 
         Ok(())
+    }
+
+    /// 检查 Provider 是否已应用到全局/项目配置
+    /// 返回 (in_global, in_project)
+    pub fn check_provider_applied(&self, provider_name: &str) -> Result<(bool, bool), ConfigError> {
+        // 检查全局配置 ~/.config/opencode/package.json
+        let home_dir = dirs::home_dir().ok_or_else(|| ConfigError::NotFound {
+            name: "用户主目录".to_string(),
+        })?;
+        let global_config_path = home_dir.join(".config").join("opencode").join("package.json");
+        let in_global = Self::check_provider_in_config(&global_config_path, provider_name);
+
+        // 检查项目配置 ./.opencode/opencode.json
+        let project_config_path = std::env::current_dir()
+            .map(|p| p.join(".opencode").join("opencode.json"))
+            .unwrap_or_default();
+        let in_project = Self::check_provider_in_config(&project_config_path, provider_name);
+
+        Ok((in_global, in_project))
+    }
+
+    /// 检查配置文件中是否包含指定的 provider
+    fn check_provider_in_config(config_path: &PathBuf, provider_name: &str) -> bool {
+        if !config_path.exists() {
+            return false;
+        }
+
+        let content = match fs::read_to_string(config_path) {
+            Ok(c) => c,
+            Err(_) => return false,
+        };
+
+        let json: serde_json::Value = match serde_json::from_str(&content) {
+            Ok(j) => j,
+            Err(_) => return false,
+        };
+
+        // 检查 provider 字段中是否包含指定的 provider
+        if let Some(providers) = json.get("provider").and_then(|v| v.as_object()) {
+            return providers.contains_key(provider_name);
+        }
+
+        false
     }
 }
 

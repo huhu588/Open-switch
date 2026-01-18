@@ -1,56 +1,59 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 </script>
 
 <template>
   <div class="max-w-2xl mx-auto">
-    <div class="rounded-xl bg-cream-50 dark:bg-dark-800 border border-cream-300 dark:border-dark-700 p-6">
+    <div class="rounded-xl bg-surface/30 border border-border p-6">
       <div class="flex items-center gap-3 mb-6">
         <span class="text-3xl">💾</span>
-        <h2 class="text-xl font-semibold">备份与恢复</h2>
+        <h2 class="text-xl font-semibold">{{ t('backup.title') }}</h2>
       </div>
 
       <div class="space-y-6">
         <section>
-          <h3 class="font-medium mb-2">配置备份功能</h3>
-          <p class="text-sm text-primary-600 dark:text-dark-300">
-            备份功能支持将您的 Coding Agent 配置备份到 WebDAV 服务器。
+          <h3 class="font-medium mb-2">{{ t('backup.featureTitle') }}</h3>
+          <p class="text-sm text-muted-foreground">
+            {{ t('backup.featureDesc') }}
           </p>
         </section>
 
         <section>
-          <h3 class="font-medium mb-2">支持的备份类型</h3>
-          <ul class="text-sm text-primary-600 dark:text-dark-300 space-y-1">
-            <li>• OpenCode 配置</li>
-            <li>• MCP 服务器配置</li>
+          <h3 class="font-medium mb-2">{{ t('backup.supportedTypes') }}</h3>
+          <ul class="text-sm text-muted-foreground space-y-1">
+            <li>• {{ t('backup.openCodeConfig') }}</li>
+            <li>• {{ t('backup.mcpConfig') }}</li>
           </ul>
         </section>
 
         <section>
-          <h3 class="font-medium mb-2">使用说明</h3>
-          <p class="text-sm text-primary-600 dark:text-dark-300 mb-3">
-            由于备份涉及网络操作，请使用命令行模式执行备份/恢复：
+          <h3 class="font-medium mb-2">{{ t('backup.usage') }}</h3>
+          <p class="text-sm text-muted-foreground mb-3">
+            {{ t('backup.usageDesc') }}
           </p>
-          <div class="bg-cream-100 dark:bg-dark-900 rounded-lg p-4 font-mono text-sm space-y-2">
+          <div class="bg-surface rounded-lg p-4 font-mono text-sm space-y-2">
             <div class="flex items-center gap-2">
               <span class="text-accent-500">$</span>
               <span>openswitch backup</span>
-              <span class="text-primary-500 dark:text-dark-400 ml-4"># 创建备份</span>
+              <span class="text-muted-foreground ml-4"># {{ t('backup.createBackup') }}</span>
             </div>
             <div class="flex items-center gap-2">
               <span class="text-accent-500">$</span>
               <span>openswitch restore</span>
-              <span class="text-primary-500 dark:text-dark-400 ml-4"># 恢复备份</span>
+              <span class="text-muted-foreground ml-4"># {{ t('backup.restoreBackup') }}</span>
             </div>
           </div>
         </section>
 
-        <section class="pt-4 border-t border-cream-300 dark:border-dark-700">
+        <section class="pt-4 border-t border-border">
           <div class="flex items-start gap-3 text-sm">
             <span class="text-xl">💡</span>
             <div>
-              <p class="font-medium">提示</p>
-              <p class="text-primary-500 dark:text-dark-400">
-                备份功能需要配置 WebDAV 服务器。您可以使用坚果云、NextCloud 等支持 WebDAV 的服务。
+              <p class="font-medium">{{ t('backup.tipTitle') }}</p>
+              <p class="text-muted-foreground">
+                {{ t('backup.tipContent') }}
               </p>
             </div>
           </div>

@@ -1,5 +1,8 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import type { ModelItem } from '@/stores/providers'
+
+const { t } = useI18n()
 
 interface Props {
   models: ModelItem[]
@@ -31,7 +34,7 @@ function formatTokens(count: number | null): string {
        :class="{ 'opacity-60 grayscale pointer-events-none': disabled }">
     <!-- Header -->
     <div class="flex items-center justify-between px-4 py-3 border-b border-border bg-surface/50">
-      <h3 class="font-bold text-xs uppercase tracking-wider text-muted-foreground">Models</h3>
+      <h3 class="font-bold text-xs uppercase tracking-wider text-muted-foreground">{{ t('model.title') }}</h3>
       <span class="text-[10px] font-mono text-muted-foreground bg-surface border border-border px-1.5 py-0.5 rounded shadow-sm">
         {{ models.length }}
       </span>
@@ -45,7 +48,7 @@ function formatTokens(count: number | null): string {
         class="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm active:scale-95"
       >
         <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-        <span>Add Model</span>
+        <span>{{ t('model.addModel') }}</span>
       </button>
       <button
         @click="emit('fetch')"
@@ -54,18 +57,18 @@ function formatTokens(count: number | null): string {
         title="Fetch models from provider"
       >
         <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="group-hover:text-accent transition-colors"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
-        <span>Sync</span>
+        <span>{{ t('model.sync') }}</span>
       </button>
     </div>
 
     <!-- List -->
     <div class="flex-1 overflow-auto p-2 scrollbar-thin">
       <div v-if="disabled" class="flex h-32 flex-col items-center justify-center gap-2 text-muted-foreground">
-        <p class="text-xs">Select a provider first</p>
+        <p class="text-xs">{{ t('model.selectProviderFirst') }}</p>
       </div>
       <div v-else-if="models.length === 0" class="flex h-32 flex-col items-center justify-center gap-2 text-muted-foreground">
         <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="opacity-20"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
-        <p class="text-xs">No models found</p>
+        <p class="text-xs">{{ t('model.noModels') }}</p>
       </div>
       <ul v-else class="space-y-1">
         <li
@@ -89,7 +92,7 @@ function formatTokens(count: number | null): string {
             <button
               @click.stop="emit('delete', model.id)"
               class="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive opacity-0 group-hover:opacity-100 transition-all"
-              title="Delete"
+              :title="t('model.delete')"
             >
               <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
             </button>

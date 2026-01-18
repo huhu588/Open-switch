@@ -1,6 +1,9 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useProvidersStore } from '@/stores/providers'
+
+const { t } = useI18n()
 import ProviderList from '@/components/ProviderList.vue'
 import ModelList from '@/components/ModelList.vue'
 import DetailPanel from '@/components/DetailPanel.vue'
@@ -9,8 +12,29 @@ import ModelDialog from '@/components/ModelDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import ApplyDialog from '@/components/ApplyDialog.vue'
 import FetchModelsDialog from '@/components/FetchModelsDialog.vue'
+import ModelTypeSelector from '@/components/ModelTypeSelector.vue'
+import { type ModelType } from '@/config/modelTypes'
 
 const store = useProvidersStore()
+
+// 模型厂家筛选
+const selectedModelType = ref<ModelType>('claude')
+
+// 切换模型厂家时清空选中的 Provider
+watch(selectedModelType, () => {
+  store.selectedProvider = null
+  store.models = []
+  store.selectedModel = null
+})
+
+// 根据模型厂家筛选 Provider
+const filteredProviders = computed(() => {
+  return store.providers.filter(p => {
+    // 根据 provider 的 model_type 字段筛选，如果没有则默认显示在 claude
+    const providerModelType = (p as any).model_type || 'claude'
+    return providerModelType === selectedModelType.value
+  })
+})
 
 // 对话框状态
 const showProviderDialog = ref(false)
@@ -75,7 +99,7 @@ async function confirmDelete() {
 
 // 应用配置
 function openApplyDialog() {
-  if (store.selectedProvider) {
+  if (filteredProviders.value.length > 0) {
     showApplyDialog.value = true
   }
 }
@@ -89,45 +113,54 @@ function openFetchModels() {
 </script>
 
 <template>
-  <div class="h-full flex gap-4">
-    <!-- Provider 列表 -->
-    <div class="w-64 flex-shrink-0">
-      <ProviderList
-        :providers="store.providers"
-        :selected="store.selectedProvider"
-        @select="store.selectProvider"
-        @add="openAddProvider"
-        @edit="openEditProvider"
-        @delete="openDeleteProvider"
-        @apply="openApplyDialog"
-      />
+  <div class="h-full flex flex-col gap-4">
+    <!-- 顶部模型厂家选择器 -->
+    <div class="flex-shrink-0 flex justify-center">
+      <ModelTypeSelector v-model="selectedModelType" />
     </div>
 
-    <!-- Model 列表 -->
-    <div class="w-72 flex-shrink-0">
-      <ModelList
-        :models="store.models"
-        :selected="store.selectedModel"
-        :disabled="!store.selectedProvider"
-        @select="id => store.selectedModel = id"
-        @add="openAddModel"
-        @delete="openDeleteModel"
-        @fetch="openFetchModels"
-      />
-    </div>
+    <!-- 主内容区 -->
+    <div class="flex-1 flex gap-4 min-h-0">
+      <!-- Provider 列表 -->
+      <div class="w-64 flex-shrink-0">
+        <ProviderList
+          :providers="filteredProviders"
+          :selected="store.selectedProvider"
+          @select="store.selectProvider"
+          @add="openAddProvider"
+          @edit="openEditProvider"
+          @delete="openDeleteProvider"
+          @apply="openApplyDialog"
+        />
+      </div>
 
-    <!-- 详情面板 -->
-    <div class="flex-1 min-w-0">
-      <DetailPanel
-        :provider="store.currentProvider"
-        :model="store.models.find(m => m.id === store.selectedModel)"
-      />
+      <!-- Model 列表 -->
+      <div class="w-72 flex-shrink-0">
+        <ModelList
+          :models="store.models"
+          :selected="store.selectedModel"
+          :disabled="!store.selectedProvider"
+          @select="id => store.selectedModel = id"
+          @add="openAddModel"
+          @delete="openDeleteModel"
+          @fetch="openFetchModels"
+        />
+      </div>
+
+      <!-- 详情面板 -->
+      <div class="flex-1 min-w-0">
+        <DetailPanel
+          :provider="store.currentProvider"
+          :model="store.models.find(m => m.id === store.selectedModel)"
+        />
+      </div>
     </div>
 
     <!-- Provider 对话框 -->
     <ProviderDialog
       v-model:visible="showProviderDialog"
       :editing="editingProvider"
+      :default-model-type="selectedModelType"
       @saved="store.loadProviders()"
     />
 
@@ -141,9 +174,11 @@ function openFetchModels() {
     <!-- 删除确认对话框 -->
     <ConfirmDialog
       v-model:visible="showDeleteDialog"
-      title="确认删除"
-      :message="`确定要删除${deleteTarget?.type === 'provider' ? 'Provider' : 'Model'} '${deleteTarget?.name}' 吗？`"
-      confirm-text="删除"
+      :title="t('confirm.deleteTitle')"
+      :message="deleteTarget?.type === 'provider' 
+        ? t('confirm.deleteProvider', { name: deleteTarget?.name }) 
+        : t('confirm.deleteModel', { name: deleteTarget?.name })"
+      :confirm-text="t('common.delete')"
       danger
       @confirm="confirmDelete"
     />
@@ -151,7 +186,8 @@ function openFetchModels() {
     <!-- 应用配置对话框 -->
     <ApplyDialog
       v-model:visible="showApplyDialog"
-      :provider-name="store.selectedProvider"
+      :provider-names="filteredProviders.map(p => p.name)"
+      :model-type="selectedModelType"
       @applied="() => {}"
     />
 
