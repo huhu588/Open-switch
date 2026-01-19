@@ -10,8 +10,6 @@ export type ApiProtocol = 'anthropic' | 'openai'
 export interface ClaudeModel {
   id: string           // 模型 ID
   name: string         // 显示名称
-  contextLimit?: number // 上下文限制
-  outputLimit?: number  // 输出限制
 }
 
 // 预设供应商定义
@@ -29,92 +27,26 @@ export interface ProviderPreset {
 
 // Claude 模型列表
 export const CLAUDE_MODELS: ClaudeModel[] = [
-  { 
-    id: 'claude-4-sonnet', 
-    name: 'Claude 4 Sonnet',
-    contextLimit: 200000,
-    outputLimit: 64000
-  },
-  { 
-    id: 'claude-4.1-opus', 
-    name: 'Claude 4.1 Opus',
-    contextLimit: 200000,
-    outputLimit: 64000
-  },
-  { 
-    id: 'claude-4.5-haiku', 
-    name: 'Claude 4.5 Haiku',
-    contextLimit: 200000,
-    outputLimit: 64000
-  },
-  { 
-    id: 'claude-4.5-opus', 
-    name: 'Claude 4.5 Opus',
-    contextLimit: 200000,
-    outputLimit: 64000
-  },
-  { 
-    id: 'claude-4.5-sonnet', 
-    name: 'Claude 4.5 Sonnet',
-    contextLimit: 200000,
-    outputLimit: 64000
-  },
+  { id: 'claude-4-sonnet', name: 'Claude 4 Sonnet' },
+  { id: 'claude-4.1-opus', name: 'Claude 4.1 Opus' },
+  { id: 'claude-4.5-haiku', name: 'Claude 4.5 Haiku' },
+  { id: 'claude-4.5-opus', name: 'Claude 4.5 Opus' },
+  { id: 'claude-4.5-sonnet', name: 'Claude 4.5 Sonnet' },
 ]
 
 // Codex (GPT) 模型列表
 export const CODEX_MODELS: ClaudeModel[] = [
-  {
-    id: 'gpt-5.2-codex',
-    name: 'GPT-5.2 Codex',
-    contextLimit: 400000,
-    outputLimit: 128000
-  },
-  {
-    id: 'gpt-5.2',
-    name: 'GPT-5.2',
-    contextLimit: 400000,
-    outputLimit: 128000
-  },
-  {
-    id: 'gpt-5.1-codex-max',
-    name: 'GPT-5.1 Codex Max',
-    contextLimit: 400000,
-    outputLimit: 128000
-  },
-  {
-    id: 'gpt-5.1-codex-mini',
-    name: 'GPT-5.1 Codex Mini',
-    contextLimit: 200000,
-    outputLimit: 64000
-  },
-  {
-    id: 'gpt-5.1',
-    name: 'GPT-5.1',
-    contextLimit: 200000,
-    outputLimit: 64000
-  },
+  { id: 'gpt-5.2-codex', name: 'GPT-5.2 Codex' },
+  { id: 'gpt-5.2', name: 'GPT-5.2' },
+  { id: 'gpt-5.1-codex-max', name: 'GPT-5.1 Codex Max' },
+  { id: 'gpt-5.1-codex-mini', name: 'GPT-5.1 Codex Mini' },
+  { id: 'gpt-5.1', name: 'GPT-5.1' },
 ]
 
 // Gemini 模型列表
 export const GEMINI_MODELS: ClaudeModel[] = [
-  {
-    id: 'gemini-2.5-pro',
-    name: 'Gemini 2.5 Pro',
-    contextLimit: 1000000,
-    outputLimit: 65536
-  },
-  {
-    id: 'gemini-2.5-flash',
-    name: 'Gemini 2.5 Flash',
-    contextLimit: 1000000,
-    outputLimit: 65536
-  },
-  {
-    id: 'gemini-2.0-flash',
-    name: 'Gemini 2.0 Flash',
-    contextLimit: 1000000,
-    outputLimit: 8192
-  },
+  { id: 'gemini-3-pro', name: 'Gemini 3 Pro' },
+  { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro' },
 ]
 
 // 根据模型类型获取模型列表
@@ -144,6 +76,21 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     models: CLAUDE_MODELS,
     description: 'i7 Relay 聚合 API',
     category: 'aggregator',
+  },
+  // 智谱 AI
+  {
+    name: '智谱 AI',
+    websiteUrl: 'https://open.bigmodel.cn',
+    apiKeyUrl: 'https://www.bigmodel.cn/glm-coding?ic=LOLVYRGC8E',
+    baseUrl: 'https://open.bigmodel.cn/api/coding/paas/v4',
+    defaultProtocol: 'openai',
+    supportedProtocols: ['openai', 'anthropic'],
+    models: [
+      { id: 'glm-4.7', name: 'GLM-4.7' },
+      { id: 'glm-4.6', name: 'GLM-4.6' },
+    ],
+    description: '智谱 GLM 编程专用 API',
+    category: 'cn_official',
   },
   // 自定义
   {

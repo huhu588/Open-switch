@@ -15,6 +15,11 @@ const router = createRouter({
       component: () => import('@/views/McpView.vue')
     },
     {
+      path: '/skill',
+      name: 'skill',
+      component: () => import('@/views/SkillView.vue')
+    },
+    {
       path: '/backup',
       name: 'backup',
       component: () => import('@/views/BackupView.vue')

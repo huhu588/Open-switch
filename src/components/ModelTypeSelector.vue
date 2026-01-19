@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { MODEL_TYPES, type ModelType } from '@/config/modelTypes'
+import SvgIcon from '@/components/SvgIcon.vue'
 
 interface Props {
   modelValue: ModelType
@@ -31,7 +32,7 @@ const selected = computed({
           : 'text-muted-foreground hover:text-primary'
       ]"
     >
-      <span class="text-base">{{ type.icon }}</span>
+      <SvgIcon :name="type.icon" :size="18" />
       <span>{{ type.name }}</span>
     </button>
   </div>

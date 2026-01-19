@@ -87,3 +87,32 @@ pub fn get_status(
 pub fn get_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
 }
+
+/// 获取公网 IP 地址
+#[tauri::command]
+pub async fn get_local_ip() -> String {
+    // 通过外部 API 获取公网 IP
+    let apis = [
+        "https://api.ipify.org",
+        "https://ipinfo.io/ip",
+        "https://api.ip.sb/ip",
+    ];
+    
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .unwrap_or_default();
+    
+    for api in apis {
+        if let Ok(resp) = client.get(api).send().await {
+            if let Ok(ip) = resp.text().await {
+                let ip = ip.trim().to_string();
+                if !ip.is_empty() && ip.chars().all(|c| c.is_ascii_digit() || c == '.') {
+                    return ip;
+                }
+            }
+        }
+    }
+    
+    "---.---.---.---".to_string()
+}

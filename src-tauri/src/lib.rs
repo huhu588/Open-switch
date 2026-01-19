@@ -24,6 +24,7 @@ pub fn run() {
             commands::add_provider,
             commands::update_provider,
             commands::delete_provider,
+            commands::toggle_provider,
             commands::check_provider_applied,
             commands::apply_config,
             // Model commands
@@ -43,9 +44,24 @@ pub fn run() {
             commands::get_recommended_mcp_servers,
             commands::add_recommended_mcp_servers,
             commands::check_mcp_server_health,
+            // Skill commands
+            commands::get_installed_skills,
+            commands::get_recommended_skills,
+            commands::install_skill,
+            commands::delete_skill,
+            commands::read_skill_content,
+            // Rule commands
+            commands::get_installed_rules,
+            commands::get_recommended_rules,
+            commands::install_rule,
+            commands::delete_rule,
+            commands::read_rule_content,
+            commands::save_rule_content,
+            commands::toggle_rule_enabled,
             // Status commands
             commands::get_status,
             commands::get_version,
+            commands::get_local_ip,
         ])
         .run(tauri::generate_context!())
         .expect("运行 Tauri 应用时出错");

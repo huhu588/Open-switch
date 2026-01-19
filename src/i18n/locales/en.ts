@@ -25,7 +25,8 @@ export default {
   // Navigation
   nav: {
     providers: 'Providers',
-    mcp: 'MCP',
+    mcp: 'Mcp/Rules',
+    skill: 'Skill',
     backup: 'Backup',
     status: 'Status'
   },
@@ -96,7 +97,9 @@ export default {
       modelId: 'gpt-4o',
       displayName: 'Optional, uses ID by default'
     },
-    adding: 'Adding...'
+    adding: 'Adding...',
+    reasoningEffort: 'Reasoning Effort',
+    reasoningEffortHint: 'Only for GPT5.2/GPT5.1 reasoning models, select "None" for regular models'
   },
 
   // Detail panel
@@ -154,6 +157,7 @@ export default {
     enabled: 'Enable',
     disabled: 'Disable',
     selectServer: 'Select an MCP server to view details',
+    selectItem: 'Select an item from the list to view details',
     type: 'Type',
     local: 'Local',
     remote: 'Remote',
@@ -162,6 +166,12 @@ export default {
     statusDisabled: 'Disabled',
     command: 'Command',
     url: 'URL',
+    installPath: 'Install Path',
+    package: 'Package',
+    effective: 'Effective',
+    effectiveYes: '✓ Active',
+    effectiveNo: '✗ Inactive',
+    effectiveDisabled: 'Disabled',
     // New
     addRecommended: 'Add Recommended MCP',
     addCustom: 'Custom Add',
@@ -203,6 +213,61 @@ export default {
     restoreBackup: 'Restore backup',
     tipTitle: 'Tip',
     tipContent: 'Backup feature requires a WebDAV server. You can use services that support WebDAV like Nutstore, NextCloud, etc.'
+  },
+
+  // Skill page
+  skill: {
+    title: 'Skills',
+    addRecommended: 'Add Recommended Skill',
+    refresh: 'Refresh',
+    noSkills: 'No skills installed',
+    installFirst: 'Install your first Skill',
+    recommended: 'Recommended Skills',
+    installLocation: 'Install Location',
+    selected: '{count} selected',
+    installing: 'Installing...',
+    installAll: 'Install All',
+    installed: 'Installed',
+    view: 'View Content',
+    deleteConfirm: "Are you sure you want to delete Skill '{name}'?"
+  },
+
+  // Rule page
+  rule: {
+    title: 'Rules',
+    noRules: 'No rules installed',
+    addRecommended: 'Add Recommended Rules',
+    addCustom: 'Custom Rule',
+    deleteConfirm: "Are you sure you want to delete rule '{name}'?",
+    deleted: 'Deleted rule {name}',
+    saved: 'Saved rule {name}',
+    editTitle: 'Edit Rule',
+    type: 'Type',
+    path: 'Path',
+    desc: 'Description',
+    recommendedTitle: 'Recommended Rules',
+    customTitle: 'Custom Rule',
+    installLocation: 'Install Location',
+    locationOptions: {
+      globalOpencode: 'Global OpenCode (~/.config/opencode/rules/)',
+      projectOpencode: 'Project OpenCode (.opencode/rules/)',
+      globalClaude: 'Global Claude (~/.claude/rules/)',
+      projectClaude: 'Project Claude (.claude/rules/)'
+    },
+    selectedCount: '{count} selected',
+    installing: 'Installing...',
+    addAll: 'Install All',
+    installed: 'Installed',
+    rulesAdded: 'Added {count} rule(s)',
+    rulesFailed: '{count} rule(s) failed to install',
+    customName: 'Rule Name',
+    customNamePlaceholder: 'e.g. my-coding-rules',
+    customNameRequired: 'Please enter rule name',
+    customContent: 'Rule Content (Markdown)',
+    customContentRequired: 'Please enter rule content',
+    customContentHint: 'Supports Markdown format, use YAML frontmatter to define globs patterns',
+    customAdded: 'Added rule {name}',
+    content: 'Rule Content'
   },
 
   // Status page

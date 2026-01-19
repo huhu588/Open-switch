@@ -4,6 +4,8 @@ import App from './App.vue'
 import router from './router'
 import i18n from './i18n'
 import './styles/main.css'
+// 导入 iconfont 图标库
+import '@/assets/iconfont/iconfont.js'
 
 const app = createApp(App)
 

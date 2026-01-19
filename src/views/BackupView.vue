@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
+import SvgIcon from '@/components/SvgIcon.vue'
 
 const { t } = useI18n()
 </script>
@@ -8,7 +9,7 @@ const { t } = useI18n()
   <div class="max-w-2xl mx-auto">
     <div class="rounded-xl bg-surface/30 border border-border p-6">
       <div class="flex items-center gap-3 mb-6">
-        <span class="text-3xl">💾</span>
+        <SvgIcon name="save" :size="32" class="text-accent" />
         <h2 class="text-xl font-semibold">{{ t('backup.title') }}</h2>
       </div>
 
@@ -49,7 +50,7 @@ const { t } = useI18n()
 
         <section class="pt-4 border-t border-border">
           <div class="flex items-start gap-3 text-sm">
-            <span class="text-xl">💡</span>
+            <SvgIcon name="info" :size="20" class="text-accent flex-shrink-0 mt-0.5" />
             <div>
               <p class="font-medium">{{ t('backup.tipTitle') }}</p>
               <p class="text-muted-foreground">

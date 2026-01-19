@@ -15,6 +15,7 @@ pub struct ProviderItem {
     pub model_count: usize,
     pub description: Option<String>,
     pub model_type: String,
+    pub enabled: bool,
 }
 
 /// Provider 详情（传递给前端）
@@ -43,6 +44,12 @@ pub struct ProviderInput {
     pub npm: Option<String>,
     pub description: Option<String>,
     pub model_type: Option<String>,
+    #[serde(default = "default_auto_add_v1_suffix")]
+    pub auto_add_v1_suffix: bool,
+}
+
+fn default_auto_add_v1_suffix() -> bool {
+    true
 }
 
 /// 应用配置的参数
@@ -70,6 +77,7 @@ pub fn get_providers(
             description: provider.metadata.description.clone(),
             // 从顶级字段读取 model_type
             model_type: provider.model_type.clone().unwrap_or_else(|| "claude".to_string()),
+            enabled: provider.enabled,
         })
         .collect();
     
@@ -115,6 +123,7 @@ pub fn add_provider(
         input.npm,
         input.description,
         input.model_type,
+        input.auto_add_v1_suffix,
     )?;
     Ok(())
 }
@@ -184,5 +193,17 @@ pub fn apply_config(
         manager.apply_multiple_opencode_to_project(&input.provider_names)?;
     }
     
+    Ok(())
+}
+
+/// 切换 Provider 启用状态
+#[tauri::command]
+pub fn toggle_provider(
+    name: String,
+    enabled: bool,
+    config_manager: State<'_, Mutex<ConfigManager>>,
+) -> Result<(), AppError> {
+    let mut manager = config_manager.lock().map_err(|e| AppError::Custom(e.to_string()))?;
+    manager.opencode_mut().toggle_provider(&name, enabled)?;
     Ok(())
 }

@@ -2,12 +2,14 @@
 import { ref, watch, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { invoke } from '@tauri-apps/api/core'
+import { open as openUrl } from '@tauri-apps/plugin-shell'
 import { 
   PROVIDER_PRESETS, 
   getModelsByType,
   type ApiProtocol
 } from '@/config/providerPresets'
 import { MODEL_TYPES, type ModelType } from '@/config/modelTypes'
+import SvgIcon from '@/components/SvgIcon.vue'
 
 const { t } = useI18n()
 
@@ -42,6 +44,13 @@ const selectedPreset = ref<string>('自定义')
 const autoAddModels = ref(true)
 const selectedModels = ref<string[]>([])
 
+// 自定义模型相关
+const customModelInput = ref('')
+const customModels = ref<string[]>([])
+
+// URL 后缀控制
+const autoAddV1Suffix = ref(true)
+
 const loading = ref(false)
 const error = ref<string | null>(null)
 const showApiKey = ref(false)
@@ -68,6 +77,7 @@ const presetModels = computed(() => {
 
 // 选择预设时自动填充
 function onPresetChange(presetName: string) {
+  selectedPreset.value = presetName
   const preset = PROVIDER_PRESETS.find(p => p.name === presetName)
   if (preset) {
     form.value.name = preset.category === 'custom' ? '' : preset.name
@@ -76,6 +86,8 @@ function onPresetChange(presetName: string) {
     form.value.description = preset.description || ''
     // 根据当前模型厂家选中所有模型
     selectedModels.value = getModelsByType(form.value.model_type).map(m => m.id)
+    // 智谱 AI 使用 v4，不需要添加 /v1 后缀
+    autoAddV1Suffix.value = preset.name !== '智谱 AI'
   }
 }
 
@@ -93,6 +105,28 @@ watch(() => form.value.model_type, () => {
   selectedModels.value = presetModels.value.map(m => m.id)
 })
 
+// 添加自定义模型
+function addCustomModel() {
+  const modelName = customModelInput.value.trim()
+  if (modelName && !customModels.value.includes(modelName)) {
+    customModels.value.push(modelName)
+    customModelInput.value = ''
+  }
+}
+
+// 移除自定义模型
+function removeCustomModel(modelName: string) {
+  customModels.value = customModels.value.filter(m => m !== modelName)
+}
+
+// 按回车添加自定义模型
+function onCustomModelKeydown(e: KeyboardEvent) {
+  if (e.key === 'Enter') {
+    e.preventDefault()
+    addCustomModel()
+  }
+}
+
 // 监听 editing 变化，加载数据
 watch(() => props.visible, async (visible) => {
   if (visible && props.editing) {
@@ -107,9 +141,9 @@ watch(() => props.visible, async (visible) => {
           name: props.editing,
           api_key: provider.options.api_key || '',
           base_url: provider.options.base_url || '',
-          description: provider.metadata?.description || '',
+          description: provider.description || '',
           protocol: inferredProtocol as ApiProtocol,
-          model_type: provider.model_type || provider.metadata?.model_type || 'claude',
+          model_type: provider.model_type || 'claude',
         }
         selectedPreset.value = '自定义'
         autoAddModels.value = false
@@ -124,12 +158,31 @@ watch(() => props.visible, async (visible) => {
     form.value.api_key = ''
     form.value.model_type = props.defaultModelType
     autoAddModels.value = true
+    // 清空自定义模型
+    customModels.value = []
+    customModelInput.value = ''
   }
   error.value = null
 })
 
 function close() {
   emit('update:visible', false)
+}
+
+// 打开获取 API Key 的链接
+async function openApiKeyUrl() {
+  if (currentPreset.value?.apiKeyUrl) {
+    try {
+      await openUrl(currentPreset.value.apiKeyUrl)
+      console.log('打开链接:', currentPreset.value.apiKeyUrl)
+    } catch (e) {
+      console.error('打开链接失败:', e)
+      // 尝试使用 window.open 作为后备方案
+      if (typeof window !== 'undefined') {
+        window.open(currentPreset.value.apiKeyUrl, '_blank')
+      }
+    }
+  }
 }
 
 async function save() {
@@ -159,22 +212,28 @@ async function save() {
           api_key: form.value.api_key,
           base_url: baseUrl,
           description: form.value.description || null,
-          npm: npm
+          npm: npm,
+          auto_add_v1_suffix: autoAddV1Suffix.value
         }
       })
     } else {
       // 添加 Provider
+      // 根据协议选择 npm 包
+      const npm = form.value.protocol === 'openai' ? '@ai-sdk/openai' : '@ai-sdk/anthropic'
+      
       await invoke('add_provider', {
         input: {
           name: form.value.name,
           api_key: form.value.api_key,
           base_url: baseUrl,
           description: form.value.description || null,
-          model_type: form.value.model_type
+          model_type: form.value.model_type,
+          npm: npm,
+          auto_add_v1_suffix: autoAddV1Suffix.value
         }
       })
       
-      // 自动添加选中的模型
+      // 自动添加选中的预设模型
       if (autoAddModels.value && selectedModels.value.length > 0) {
         for (const modelId of selectedModels.value) {
           const modelDef = presetModels.value.find(m => m.id === modelId)
@@ -185,13 +244,28 @@ async function save() {
                 input: {
                   id: modelDef.id,
                   name: modelDef.name,
-                  context_limit: modelDef.contextLimit || null,
-                  output_limit: modelDef.outputLimit || null,
                 }
               })
             } catch (e) {
               console.warn(`添加模型 ${modelId} 失败:`, e)
             }
+          }
+        }
+      }
+      
+      // 添加自定义模型
+      if (customModels.value.length > 0) {
+        for (const modelName of customModels.value) {
+          try {
+            await invoke('add_model', {
+              providerName: form.value.name,
+              input: {
+                id: modelName,
+                name: modelName,
+              }
+            })
+          } catch (e) {
+            console.warn(`添加自定义模型 ${modelName} 失败:`, e)
           }
         }
       }
@@ -260,11 +334,17 @@ async function save() {
               <p class="mt-2 text-xs text-muted-foreground">
                 💡 自定义配置需手动填写所有必要字段
               </p>
-              <p v-if="currentPreset?.apiKeyUrl" class="mt-1 text-xs text-muted-foreground">
-                <a :href="currentPreset.apiKeyUrl" target="_blank" class="text-accent-500 hover:underline">
-                  获取 API Key →
-                </a>
-              </p>
+              <div v-if="currentPreset?.apiKeyUrl" class="mt-2 inline-block">
+                <button
+                  type="button"
+                  @click="openApiKeyUrl"
+                  class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg bg-gradient-to-r from-emerald-500 to-teal-500 text-white hover:from-emerald-600 hover:to-teal-600 transition-all shadow-md hover:shadow-lg transform hover:scale-105"
+                >
+                  <SvgIcon name="key" :size="16" />
+                  <span>获取 API Key</span>
+                  <SvgIcon name="link" :size="16" />
+                </button>
+              </div>
             </div>
 
             <!-- 模型厂家选择 (仅新增时显示) -->
@@ -283,7 +363,7 @@ async function save() {
                       : 'border-border text-primary hover:border-purple-400 hover:bg-surface-hover'
                   ]"
                 >
-                  <span>{{ type.icon }}</span>
+                  <SvgIcon :name="type.icon" :size="18" />
                   <span>{{ type.name }}</span>
                 </button>
               </div>
@@ -323,7 +403,17 @@ async function save() {
 
             <!-- Base URL -->
             <div>
-              <label class="block text-sm font-medium mb-1.5">{{ t('provider.baseUrl') }}</label>
+              <div class="flex items-center justify-between mb-1.5">
+                <label class="text-sm font-medium">{{ t('provider.baseUrl') }}</label>
+                <label class="flex items-center gap-1.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    v-model="autoAddV1Suffix"
+                    class="w-3.5 h-3.5 rounded text-accent-500"
+                  />
+                  <span class="text-xs text-muted-foreground">自动添加 /v1 后缀</span>
+                </label>
+              </div>
               <input
                 v-model="form.base_url"
                 type="text"
@@ -368,45 +458,105 @@ async function save() {
               />
             </div>
 
-            <!-- 自动添加模型 (仅新增时显示) -->
-            <div v-if="!editing" class="border-t border-border pt-4">
-              <label class="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  v-model="autoAddModels"
-                  class="w-4 h-4 rounded text-accent-500"
-                />
-                <span class="text-sm font-medium">自动添加预设模型</span>
-              </label>
+            <!-- 模型配置 (仅新增时显示) -->
+            <div v-if="!editing" class="border-t border-border pt-4 space-y-4">
+              <!-- 自动添加预设模型 -->
+              <div>
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    v-model="autoAddModels"
+                    class="w-4 h-4 rounded text-accent-500"
+                  />
+                  <span class="text-sm font-medium">自动添加预设模型</span>
+                </label>
+                
+                <!-- 预设模型选择列表 -->
+                <div v-if="autoAddModels" class="mt-3 space-y-2">
+                  <div class="flex items-center justify-between">
+                    <span class="text-xs text-muted-foreground">
+                      已选择 {{ selectedModels.length }} / {{ presetModels.length }} 个预设模型
+                    </span>
+                    <button 
+                      type="button"
+                      @click="toggleAllModels"
+                      class="text-xs text-accent-500 hover:underline"
+                    >
+                      {{ selectedModels.length === presetModels.length ? '取消全选' : '全选' }}
+                    </button>
+                  </div>
+                  <div class="grid grid-cols-2 gap-2 max-h-32 overflow-y-auto p-2 rounded-lg bg-surface">
+                    <label 
+                      v-for="model in presetModels" 
+                      :key="model.id"
+                      class="flex items-center gap-2 cursor-pointer text-sm"
+                    >
+                      <input
+                        type="checkbox"
+                        :value="model.id"
+                        v-model="selectedModels"
+                        class="w-3.5 h-3.5 rounded text-accent-500"
+                      />
+                      <span class="truncate" :title="model.name">{{ model.name }}</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
               
-              <!-- 模型选择列表 -->
-              <div v-if="autoAddModels" class="mt-3 space-y-2">
-                <div class="flex items-center justify-between">
-                  <span class="text-xs text-muted-foreground">
-                    已选择 {{ selectedModels.length }} / {{ presetModels.length }} 个模型
-                  </span>
-                  <button 
+              <!-- 自定义模型添加 -->
+              <div>
+                <label class="block text-sm font-medium mb-2">添加自定义模型</label>
+                <div class="flex gap-2">
+                  <input
+                    v-model="customModelInput"
+                    type="text"
+                    placeholder="输入模型名称，如 gpt-4o-mini"
+                    @keydown="onCustomModelKeydown"
+                    class="flex-1 px-3 py-2 rounded-lg border border-border bg-surface text-primary text-sm font-mono"
+                  />
+                  <button
                     type="button"
-                    @click="toggleAllModels"
-                    class="text-xs text-accent-500 hover:underline"
+                    @click="addCustomModel"
+                    :disabled="!customModelInput.trim()"
+                    class="px-3 py-2 rounded-lg bg-accent-500 text-white hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
-                    {{ selectedModels.length === presetModels.length ? '取消全选' : '全选' }}
+                    <SvgIcon name="plus" :size="16" />
                   </button>
                 </div>
-                <div class="grid grid-cols-2 gap-2 max-h-32 overflow-y-auto p-2 rounded-lg bg-surface">
-                  <label 
-                    v-for="model in presetModels" 
-                    :key="model.id"
-                    class="flex items-center gap-2 cursor-pointer text-sm"
-                  >
-                    <input
-                      type="checkbox"
-                      :value="model.id"
-                      v-model="selectedModels"
-                      class="w-3.5 h-3.5 rounded text-accent-500"
-                    />
-                    <span class="truncate" :title="model.name">{{ model.name }}</span>
-                  </label>
+                <p class="mt-1 text-xs text-muted-foreground">
+                  输入模型名称后按回车或点击添加按钮
+                </p>
+                
+                <!-- 自定义模型列表 -->
+                <div v-if="customModels.length > 0" class="mt-3">
+                  <div class="flex items-center justify-between mb-2">
+                    <span class="text-xs text-muted-foreground">
+                      已添加 {{ customModels.length }} 个自定义模型
+                    </span>
+                    <button 
+                      type="button"
+                      @click="customModels = []"
+                      class="text-xs text-red-500 hover:underline"
+                    >
+                      清空全部
+                    </button>
+                  </div>
+                  <div class="flex flex-wrap gap-2">
+                    <span
+                      v-for="model in customModels"
+                      :key="model"
+                      class="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-violet-500/20 text-violet-400 text-xs font-mono"
+                    >
+                      {{ model }}
+                      <button
+                        type="button"
+                        @click="removeCustomModel(model)"
+                        class="hover:text-red-400 transition-colors"
+                      >
+                        <SvgIcon name="close" :size="12" />
+                      </button>
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -424,7 +574,7 @@ async function save() {
             <button
               @click="save"
               :disabled="loading"
-              class="px-4 py-2 text-sm font-medium rounded-lg bg-accent-500 text-white hover:bg-accent-600 disabled:opacity-50 transition-colors"
+              class="px-4 py-2 text-sm font-medium rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm"
             >
               {{ loading ? t('common.saving') : t('common.save') }}
             </button>

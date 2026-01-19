@@ -2,6 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { invoke } from '@tauri-apps/api/core'
+import SvgIcon from '@/components/SvgIcon.vue'
 
 const { t } = useI18n()
 
@@ -43,7 +44,7 @@ onMounted(() => {
   <div class="max-w-2xl mx-auto">
     <div class="rounded-xl bg-surface/30 border border-border p-6">
       <div class="flex items-center gap-3 mb-6">
-        <span class="text-3xl">📊</span>
+        <SvgIcon name="activity" :size="32" class="text-accent" />
         <h2 class="text-xl font-semibold">{{ t('status.title') }}</h2>
       </div>
 

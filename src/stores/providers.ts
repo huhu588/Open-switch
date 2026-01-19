@@ -8,13 +8,13 @@ export interface ProviderItem {
   base_url: string
   model_count: number
   description: string | null
+  enabled: boolean
 }
 
 export interface ModelItem {
   id: string
   name: string
-  context_limit: number | null
-  output_limit: number | null
+  reasoning_effort?: string
 }
 
 export const useProvidersStore = defineStore('providers', () => {
@@ -113,8 +113,6 @@ export const useProvidersStore = defineStore('providers', () => {
   async function addModel(input: {
     id: string
     name?: string
-    context_limit?: number
-    output_limit?: number
   }) {
     if (!selectedProvider.value) return
     await invoke('add_model', {
@@ -169,6 +167,12 @@ export const useProvidersStore = defineStore('providers', () => {
     })
   }
 
+  // 切换 Provider 启用状态
+  async function toggleProvider(name: string, enabled: boolean) {
+    await invoke('toggle_provider', { name, enabled })
+    await loadProviders()
+  }
+
   return {
     // 状态
     providers,
@@ -191,5 +195,6 @@ export const useProvidersStore = defineStore('providers', () => {
     fetchSiteModels,
     addModelsBatch,
     applyConfig,
+    toggleProvider,
   }
 })

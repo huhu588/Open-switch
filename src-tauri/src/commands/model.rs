@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 use tauri::State;
 
-use crate::config::{ConfigManager, OpenCodeModelInfo, OpenCodeModelLimit, Detector};
+use crate::config::{ConfigManager, OpenCodeModelInfo, Detector};
 use crate::error::AppError;
 
 /// Model 列表项
@@ -12,8 +12,6 @@ use crate::error::AppError;
 pub struct ModelItem {
     pub id: String,
     pub name: String,
-    pub context_limit: Option<u64>,
-    pub output_limit: Option<u64>,
 }
 
 /// 添加 Model 的参数
@@ -21,8 +19,8 @@ pub struct ModelItem {
 pub struct ModelInput {
     pub id: String,
     pub name: Option<String>,
-    pub context_limit: Option<u64>,
-    pub output_limit: Option<u64>,
+    /// 推理强度 (仅用于 GPT5.2/GPT5.1 等推理模型)
+    pub reasoning_effort: Option<String>,
 }
 
 /// 获取 Provider 下的所有 Model
@@ -39,8 +37,6 @@ pub fn get_models(
         .map(|(id, info)| ModelItem {
             id: id.clone(),
             name: info.name.clone(),
-            context_limit: info.limit.as_ref().and_then(|l| l.context),
-            output_limit: info.limit.as_ref().and_then(|l| l.output),
         })
         .collect();
     
@@ -58,19 +54,11 @@ pub fn add_model(
 ) -> Result<(), AppError> {
     let mut manager = config_manager.lock().map_err(|e| AppError::Custom(e.to_string()))?;
     
-    let limit = if input.context_limit.is_some() || input.output_limit.is_some() {
-        Some(OpenCodeModelLimit {
-            context: input.context_limit,
-            output: input.output_limit,
-        })
-    } else {
-        None
-    };
-    
     let model_info = OpenCodeModelInfo {
         id: input.id.clone(),
         name: input.name.unwrap_or_else(|| input.id.clone()),
-        limit,
+        limit: None,
+        reasoning_effort: input.reasoning_effort,
         model_detection: None,
     };
     
@@ -163,6 +151,7 @@ pub fn add_models_batch(
             id: model_id.clone(),
             name: model_id.clone(),
             limit: None,
+            reasoning_effort: None,
             model_detection: None,
         };
         

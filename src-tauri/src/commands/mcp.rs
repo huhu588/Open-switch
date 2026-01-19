@@ -5,6 +5,9 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use tauri::State;
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
 use crate::config::{ConfigManager, McpServer, McpServerType, McpOAuthConfig};
 use crate::error::AppError;
 
@@ -16,6 +19,10 @@ pub struct McpServerItem {
     pub enabled: bool,
     pub url: Option<String>,
     pub command: Option<Vec<String>>,
+    /// 配置文件安装位置
+    pub install_path: String,
+    /// 包名（从npm命令中提取）
+    pub package_name: Option<String>,
 }
 
 /// MCP 服务器输入
@@ -49,6 +56,28 @@ pub struct SyncMcpInput {
     pub sync_to_project: bool,
 }
 
+/// 从命令中提取npm包名
+fn extract_package_name(command: &Option<Vec<String>>) -> Option<String> {
+    if let Some(cmd) = command {
+        // 查找 @ 开头的包名，如 @modelcontextprotocol/server-memory
+        for arg in cmd {
+            if arg.starts_with('@') || (arg.contains('/') && !arg.starts_with('-')) {
+                return Some(arg.clone());
+            }
+            // 处理类似 oh-my-opencode 这样的包名
+            if !arg.starts_with('-') && !arg.starts_with('/') && arg.contains('-') && !cmd.first().map(|s| s == arg).unwrap_or(false) {
+                // 确保不是第一个参数（命令本身）
+                if let Some(first) = cmd.first() {
+                    if first == "npx" || first == "bunx" || first == "node" {
+                        return Some(arg.clone());
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
 /// 获取所有 MCP 服务器列表
 #[tauri::command]
 pub fn get_mcp_servers(
@@ -57,15 +86,30 @@ pub fn get_mcp_servers(
     let manager = config_manager.lock().map_err(|e| AppError::Custom(e.to_string()))?;
     let mcp_config = manager.mcp().read_config()?;
     
+    // 获取 MCP 配置目录路径
+    let mcp_dir = manager.mcp().get_mcp_dir();
+    
     let mut items: Vec<McpServerItem> = mcp_config
         .servers
         .iter()
-        .map(|(name, server)| McpServerItem {
-            name: name.clone(),
-            server_type: server.server_type.to_string(),
-            enabled: server.enabled,
-            url: server.url.clone(),
-            command: server.command.clone(),
+        .map(|(name, server)| {
+            // 构建配置文件的安装位置
+            let install_path = mcp_dir.join(format!("{}.json", name))
+                .to_string_lossy()
+                .to_string();
+            
+            // 从npm命令中提取包名
+            let package_name = extract_package_name(&server.command);
+            
+            McpServerItem {
+                name: name.clone(),
+                server_type: server.server_type.to_string(),
+                enabled: server.enabled,
+                url: server.url.clone(),
+                command: server.command.clone(),
+                install_path,
+                package_name,
+            }
         })
         .collect();
     
@@ -117,6 +161,9 @@ pub fn update_mcp_server(
     
     let server = build_mcp_server(&input)?;
     manager.mcp_mut().save_server(&input.name, server)?;
+    
+    // 自动同步到 OpenCode
+    let _ = manager.mcp().sync_to_opencode(None);
     
     Ok(())
 }
@@ -173,15 +220,34 @@ pub fn check_mcp_server_health(
         
         // 检查命令是否存在
         let program = &cmd[0];
-        let check_result = if program == "npx" || program == "node" || program == "bun" || program == "bunx" {
-            // 检查 Node/Bun 是否可用
-            std::process::Command::new(program)
-                .arg("--version")
-                .output()
-        } else {
-            std::process::Command::new(program)
-                .arg("--help")
-                .output()
+        
+        // Windows 上需要使用 cmd /c 来执行 npx 等命令
+        #[cfg(windows)]
+        let check_result = {
+            if program == "npx" || program == "node" || program == "bun" || program == "bunx" {
+                std::process::Command::new("cmd")
+                    .args(["/c", program, "--version"])
+                    .creation_flags(0x08000000) // CREATE_NO_WINDOW
+                    .output()
+            } else {
+                std::process::Command::new("cmd")
+                    .args(["/c", program, "--help"])
+                    .creation_flags(0x08000000)
+                    .output()
+            }
+        };
+        
+        #[cfg(not(windows))]
+        let check_result = {
+            if program == "npx" || program == "node" || program == "bun" || program == "bunx" {
+                std::process::Command::new(program)
+                    .arg("--version")
+                    .output()
+            } else {
+                std::process::Command::new(program)
+                    .arg("--help")
+                    .output()
+            }
         };
         
         match check_result {
@@ -191,16 +257,17 @@ pub fn check_mcp_server_health(
                     message: format!("{} 可用", program),
                 })
             }
-            Ok(_) => {
+            Ok(output) => {
+                let stderr = String::from_utf8_lossy(&output.stderr);
                 Ok(McpHealthResult {
                     healthy: false,
-                    message: format!("{} 命令执行失败", program),
+                    message: format!("{} 执行失败: {}", program, stderr.lines().next().unwrap_or("未知错误")),
                 })
             }
-            Err(_) => {
+            Err(e) => {
                 Ok(McpHealthResult {
                     healthy: false,
-                    message: format!("{} 未找到，请确保已安装", program),
+                    message: format!("{} 未找到: {}", program, e),
                 })
             }
         }

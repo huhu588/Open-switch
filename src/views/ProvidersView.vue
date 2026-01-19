@@ -6,7 +6,6 @@ import { useProvidersStore } from '@/stores/providers'
 const { t } = useI18n()
 import ProviderList from '@/components/ProviderList.vue'
 import ModelList from '@/components/ModelList.vue'
-import DetailPanel from '@/components/DetailPanel.vue'
 import ProviderDialog from '@/components/ProviderDialog.vue'
 import ModelDialog from '@/components/ModelDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
@@ -34,6 +33,13 @@ const filteredProviders = computed(() => {
     const providerModelType = (p as any).model_type || 'claude'
     return providerModelType === selectedModelType.value
   })
+})
+
+// 获取启用的 Provider 名称列表（用于应用配置）
+const enabledProviderNames = computed(() => {
+  return filteredProviders.value
+    .filter(p => p.enabled)
+    .map(p => p.name)
 })
 
 // 对话框状态
@@ -99,7 +105,7 @@ async function confirmDelete() {
 
 // 应用配置
 function openApplyDialog() {
-  if (filteredProviders.value.length > 0) {
+  if (enabledProviderNames.value.length > 0) {
     showApplyDialog.value = true
   }
 }
@@ -108,6 +114,15 @@ function openApplyDialog() {
 function openFetchModels() {
   if (store.selectedProvider) {
     showFetchModelsDialog.value = true
+  }
+}
+
+// 切换 Provider 启用状态
+async function handleToggleProvider(name: string, enabled: boolean) {
+  try {
+    await store.toggleProvider(name, enabled)
+  } catch (e) {
+    console.error('切换启用状态失败:', e)
   }
 }
 </script>
@@ -122,7 +137,7 @@ function openFetchModels() {
     <!-- 主内容区 -->
     <div class="flex-1 flex gap-4 min-h-0">
       <!-- Provider 列表 -->
-      <div class="w-64 flex-shrink-0">
+      <div class="flex-[3] min-w-0">
         <ProviderList
           :providers="filteredProviders"
           :selected="store.selectedProvider"
@@ -131,11 +146,12 @@ function openFetchModels() {
           @edit="openEditProvider"
           @delete="openDeleteProvider"
           @apply="openApplyDialog"
+          @toggle="handleToggleProvider"
         />
       </div>
 
       <!-- Model 列表 -->
-      <div class="w-72 flex-shrink-0">
+      <div class="flex-[2] min-w-0">
         <ModelList
           :models="store.models"
           :selected="store.selectedModel"
@@ -144,14 +160,6 @@ function openFetchModels() {
           @add="openAddModel"
           @delete="openDeleteModel"
           @fetch="openFetchModels"
-        />
-      </div>
-
-      <!-- 详情面板 -->
-      <div class="flex-1 min-w-0">
-        <DetailPanel
-          :provider="store.currentProvider"
-          :model="store.models.find(m => m.id === store.selectedModel)"
         />
       </div>
     </div>
@@ -186,7 +194,7 @@ function openFetchModels() {
     <!-- 应用配置对话框 -->
     <ApplyDialog
       v-model:visible="showApplyDialog"
-      :provider-names="filteredProviders.map(p => p.name)"
+      :provider-names="enabledProviderNames"
       :model-type="selectedModelType"
       @applied="() => {}"
     />

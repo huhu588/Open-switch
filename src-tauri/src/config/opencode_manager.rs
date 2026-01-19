@@ -86,6 +86,7 @@ impl OpenCodeConfigManager {
         npm: Option<String>,
         description: Option<String>,
         model_type: Option<String>,
+        auto_add_v1_suffix: bool,
     ) -> Result<(), String> {
         let mut config = self.read_config()?;
 
@@ -93,8 +94,15 @@ impl OpenCodeConfigManager {
             return Err(format!("Provider '{}' 已存在", provider_name));
         }
 
-        let provider =
-            OpenCodeProvider::new(provider_name.clone(), base_url, api_key, npm, description, model_type);
+        let provider = OpenCodeProvider::new_with_v1_suffix(
+            provider_name.clone(),
+            base_url,
+            api_key,
+            npm,
+            description,
+            model_type,
+            auto_add_v1_suffix,
+        );
         config.add_provider(provider_name, provider);
 
         self.write_config(&config)
@@ -138,6 +146,19 @@ impl OpenCodeConfigManager {
         if config.remove_provider(provider_name).is_none() {
             return Err(format!("Provider '{}' 不存在", provider_name));
         }
+
+        self.write_config(&config)
+    }
+
+    pub fn toggle_provider(&mut self, provider_name: &str, enabled: bool) -> Result<(), String> {
+        let mut config = self.read_config()?;
+
+        let provider = config
+            .get_provider_mut(provider_name)
+            .ok_or_else(|| format!("Provider '{}' 不存在", provider_name))?;
+
+        provider.enabled = enabled;
+        provider.update_timestamp();
 
         self.write_config(&config)
     }
@@ -312,13 +333,14 @@ fn sync_providers_to_file(
                     // 移除 model_type 字段，opencode 不识别这个字段
                     obj.remove("model_type");
                     
-                    // Anthropic 协议需要 baseURL 以 /v1 结尾
+                    // 根据 auto_add_v1_suffix 和协议类型决定是否添加 /v1 后缀
                     let is_anthropic = obj.get("npm")
                         .and_then(|v| v.as_str())
                         .map(|s| s.contains("anthropic"))
                         .unwrap_or(false);
                     
-                    if is_anthropic {
+                    // 只有当 auto_add_v1_suffix 为 true 且使用 Anthropic 协议时才添加 /v1
+                    if is_anthropic && provider.auto_add_v1_suffix {
                         if let Some(options) = obj.get_mut("options").and_then(|o| o.as_object_mut()) {
                             if let Some(base_url) = options.get("baseURL").and_then(|u| u.as_str()) {
                                 // 如果 baseURL 不以 /v1 结尾，自动添加

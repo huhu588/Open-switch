@@ -9,7 +9,6 @@ OpenCode 配置管理工具，支持多 Provider 和 Model 管理
 ## 开发
 
 ```bash
-npm install
 npm run tauri dev
 ```
 

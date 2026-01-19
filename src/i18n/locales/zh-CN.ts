@@ -25,7 +25,8 @@ export default {
   // 导航
   nav: {
     providers: '服务商',
-    mcp: 'MCP',
+    mcp: 'Mcp/规则',
+    skill: 'Skill',
     backup: '备份',
     status: '状态'
   },
@@ -96,7 +97,9 @@ export default {
       modelId: 'gpt-4o',
       displayName: '可选，默认使用 ID'
     },
-    adding: '添加中...'
+    adding: '添加中...',
+    reasoningEffort: '推理强度',
+    reasoningEffortHint: '仅适用于 GPT5.2/GPT5.1 等推理模型，普通模型请选择“无”'
   },
 
   // 详情面板
@@ -154,6 +157,7 @@ export default {
     enabled: '启用',
     disabled: '禁用',
     selectServer: '选择一个 MCP 服务器查看详情',
+    selectItem: '选择左侧列表中的项目查看详情',
     type: '类型',
     local: '本地',
     remote: '远程',
@@ -162,6 +166,12 @@ export default {
     statusDisabled: '已禁用',
     command: '命令',
     url: 'URL',
+    installPath: '安装位置',
+    package: '包名',
+    effective: '是否生效',
+    effectiveYes: '✓ 已生效',
+    effectiveNo: '✗ 未生效',
+    effectiveDisabled: '已禁用',
     // 新增
     addRecommended: '添加推荐 MCP',
     addCustom: '自定义添加',
@@ -203,6 +213,61 @@ export default {
     restoreBackup: '恢复备份',
     tipTitle: '提示',
     tipContent: '备份功能需要配置 WebDAV 服务器。您可以使用坚果云、NextCloud 等支持 WebDAV 的服务。'
+  },
+
+  // Skill 页面
+  skill: {
+    title: 'Skill 技能',
+    addRecommended: '添加推荐 Skill',
+    refresh: '刷新',
+    noSkills: '暂无已安装的 Skill',
+    installFirst: '安装第一个 Skill',
+    recommended: '推荐 Skill',
+    installLocation: '安装位置',
+    selected: '已选择 {count} 个',
+    installing: '安装中...',
+    installAll: '安装全部',
+    installed: '已安装',
+    view: '查看内容',
+    deleteConfirm: "确定要删除 Skill '{name}' 吗？"
+  },
+
+  // 规则页面
+  rule: {
+    title: '规则',
+    noRules: '暂无已安装的规则',
+    addRecommended: '添加推荐规则',
+    addCustom: '自定义规则',
+    deleteConfirm: "确定要删除规则 '{name}' 吗？",
+    deleted: '已删除规则 {name}',
+    saved: '已保存规则 {name}',
+    editTitle: '编辑规则',
+    type: '类型',
+    path: '路径',
+    desc: '描述',
+    recommendedTitle: '推荐规则',
+    customTitle: '自定义规则',
+    installLocation: '安装位置',
+    locationOptions: {
+      globalOpencode: '全局 OpenCode (~/.config/opencode/rules/)',
+      projectOpencode: '项目 OpenCode (.opencode/rules/)',
+      globalClaude: '全局 Claude (~/.claude/rules/)',
+      projectClaude: '项目 Claude (.claude/rules/)'
+    },
+    selectedCount: '已选择 {count} 个',
+    installing: '安装中...',
+    addAll: '安装全部',
+    installed: '已安装',
+    rulesAdded: '已添加 {count} 个规则',
+    rulesFailed: '{count} 个规则安装失败',
+    customName: '规则名称',
+    customNamePlaceholder: '例如: my-coding-rules',
+    customNameRequired: '请输入规则名称',
+    customContent: '规则内容 (Markdown)',
+    customContentRequired: '请输入规则内容',
+    customContentHint: '支持 Markdown 格式，可使用 YAML frontmatter 定义 globs 匹配模式',
+    customAdded: '已添加规则 {name}',
+    content: '规则内容'
   },
 
   // 状态页面

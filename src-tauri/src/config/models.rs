@@ -132,6 +132,12 @@ pub struct OpenCodeProvider {
     // model_type 用于内部分类（同步到 opencode 时会被移除）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_type: Option<String>, // 模型厂家: claude, codex, gemini
+    // 是否启用（禁用的 provider 不会被应用到配置）
+    #[serde(default = "default_enabled")]
+    pub enabled: bool,
+    // 是否自动添加 /v1 后缀 (内部字段，不同步到 opencode.json)
+    #[serde(skip, default = "default_enabled")]
+    pub auto_add_v1_suffix: bool,
     pub options: OpenCodeProviderOptions,
     pub models: HashMap<String, OpenCodeModelInfo>,
     // 内部元数据 (不同步到 opencode.json)
@@ -141,6 +147,10 @@ pub struct OpenCodeProvider {
     #[serde(skip)]
     #[allow(dead_code)]
     pub site_detection: Option<SiteDetectionResult>,
+}
+
+fn default_enabled() -> bool {
+    true
 }
 
 /// Provider 选项配置
@@ -172,6 +182,10 @@ pub struct OpenCodeModelInfo {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub limit: Option<OpenCodeModelLimit>,
+    /// 推理强度 (仅用于 OpenAI GPT5.2/GPT5.1 等推理模型)
+    /// 可选值: "low", "medium", "high"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<String>,
     // 模型检测结果 (持久化缓存，不同步到 opencode.json)
     #[serde(skip)]
     #[allow(dead_code)]
@@ -263,6 +277,19 @@ impl OpenCodeProvider {
         description: Option<String>,
         model_type: Option<String>,
     ) -> Self {
+        Self::new_with_v1_suffix(name, base_url, api_key, npm, description, model_type, true)
+    }
+    
+    /// 创建新的 Provider，带自定义 v1 后缀控制
+    pub fn new_with_v1_suffix(
+        name: String,
+        base_url: String,
+        api_key: String,
+        npm: Option<String>,
+        description: Option<String>,
+        model_type: Option<String>,
+        auto_add_v1_suffix: bool,
+    ) -> Self {
         // 根据 model_type 自动选择正确的 npm 包
         let resolved_npm = npm.or_else(|| {
             model_type.as_ref().map(|mt| {
@@ -278,6 +305,8 @@ impl OpenCodeProvider {
             npm: resolved_npm,
             name,
             model_type, // 顶级字段，会被序列化到配置文件
+            enabled: true, // 默认启用
+            auto_add_v1_suffix,
             options: OpenCodeProviderOptions { base_url, api_key },
             models: HashMap::new(),
             metadata: ProviderMetadata {
@@ -490,10 +519,6 @@ pub struct McpServer {
     // === 内部元数据 ===
     #[serde(skip)]
     pub metadata: McpServerMetadata,
-}
-
-fn default_enabled() -> bool {
-    true
 }
 
 /// MCP OAuth 配置

@@ -17,9 +17,18 @@ const emit = defineEmits<{
   saved: []
 }>()
 
+// 推理强度选项
+const reasoningEffortOptions = [
+  { value: '', label: '无' },
+  { value: 'low', label: 'Low (低)' },
+  { value: 'medium', label: 'Medium (中)' },
+  { value: 'high', label: 'High (高)' }
+]
+
 const form = ref({
   id: '',
-  name: ''
+  name: '',
+  reasoning_effort: ''
 })
 
 const loading = ref(false)
@@ -27,7 +36,7 @@ const error = ref<string | null>(null)
 
 watch(() => props.visible, (visible) => {
   if (visible) {
-    form.value = { id: '', name: '' }
+    form.value = { id: '', name: '', reasoning_effort: '' }
     error.value = null
   }
 })
@@ -54,7 +63,8 @@ async function save() {
       providerName: props.providerName,
       input: {
         id: form.value.id,
-        name: form.value.name || form.value.id
+        name: form.value.name || form.value.id,
+        reasoning_effort: form.value.reasoning_effort || null
       }
     })
     emit('saved')
@@ -99,6 +109,19 @@ async function save() {
                 :placeholder="t('model.placeholder.displayName')"
                 class="w-full px-3 py-2 rounded-lg border border-border bg-surface text-primary"
               />
+            </div>
+
+            <div>
+              <label class="block text-sm font-medium mb-1.5">{{ t('model.reasoningEffort') }}</label>
+              <select
+                v-model="form.reasoning_effort"
+                class="w-full px-3 py-2 rounded-lg border border-border bg-surface text-primary"
+              >
+                <option v-for="opt in reasoningEffortOptions" :key="opt.value" :value="opt.value">
+                  {{ opt.label }}
+                </option>
+              </select>
+              <p class="mt-1 text-xs text-secondary">{{ t('model.reasoningEffortHint') }}</p>
             </div>
           </div>
 
