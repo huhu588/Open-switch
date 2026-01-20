@@ -259,6 +259,22 @@ async function toggleServer(name: string) {
   }
 }
 
+// 删除 MCP 服务器
+async function deleteMcpServer(name: string) {
+  if (!confirm(t('mcp.deleteConfirm', { name }))) return
+  try {
+    await invoke('delete_mcp_server', { name })
+    installMessage.value = t('mcp.serverDeleted', { name })
+    if (selectedServer.value === name) {
+      selectedServer.value = null
+    }
+    await loadServers()
+    setTimeout(() => { installMessage.value = '' }, 3000)
+  } catch (e: any) {
+    console.error('删除 MCP 服务器失败:', e)
+  }
+}
+
 // 已安装的推荐MCP
 const installedRecommended = ref<Set<string>>(new Set())
 
@@ -724,9 +740,17 @@ const currentServer = () => servers.value.find(s => s.name === selectedServer.va
           
           <!-- MCP 详情 -->
           <div v-else-if="currentServer() && !selectedRule" class="space-y-4">
-            <h3 class="font-semibold text-lg flex items-center gap-2">
-              <SvgIcon name="terminal" :size="18" class="text-accent" /> {{ currentServer()?.name }}
-            </h3>
+            <div class="flex items-center justify-between">
+              <h3 class="font-semibold text-lg flex items-center gap-2">
+                <SvgIcon name="terminal" :size="18" class="text-accent" /> {{ currentServer()?.name }}
+              </h3>
+              <button
+                @click="deleteMcpServer(currentServer()!.name)"
+                class="px-3 py-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 text-xs transition-all flex items-center gap-1"
+              >
+                <SvgIcon name="trash" :size="12" /> {{ t('common.delete') }}
+              </button>
+            </div>
             <div class="space-y-2 text-sm">
               <div class="flex gap-3">
                 <span class="text-muted-foreground w-20">{{ t('mcp.type') }}</span>

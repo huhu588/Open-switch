@@ -115,6 +115,7 @@ impl OpenCodeConfigManager {
         api_key: Option<String>,
         npm: Option<String>,
         description: Option<String>,
+        model_type: Option<String>,
     ) -> Result<(), String> {
         let mut config = self.read_config()?;
 
@@ -134,6 +135,10 @@ impl OpenCodeConfigManager {
         }
         if let Some(desc) = description {
             provider.metadata.description = Some(desc);
+            provider.update_timestamp();
+        }
+        if let Some(mt) = model_type {
+            provider.model_type = Some(mt);
             provider.update_timestamp();
         }
 
@@ -244,9 +249,14 @@ fn ensure_dir_exists(path: &PathBuf) -> Result<(), String> {
 }
 
 fn get_project_opencode_paths() -> Result<(PathBuf, PathBuf), String> {
-    let project_dir = std::env::current_dir()
-        .map_err(|e| format!("获取当前目录失败: {}", e))?
-        .join(".opencode");
+    let current_dir = std::env::current_dir()
+        .map_err(|e| format!("获取当前目录失败: {}", e))?;
+    // 开发模式下 Tauri 的 current_dir 往往是 src-tauri，需要回退到项目根目录
+    let project_root = match current_dir.file_name().and_then(|n| n.to_str()) {
+        Some("src-tauri") => current_dir.parent().unwrap_or(&current_dir).to_path_buf(),
+        _ => current_dir.clone(),
+    };
+    let project_dir = project_root.join(".opencode");
     let project_json = project_dir.join("opencode.json");
     Ok((project_dir, project_json))
 }

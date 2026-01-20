@@ -81,11 +81,32 @@ pub fn delete_model(
 
 /// Claude 预设模型列表 (Anthropic 协议使用)
 const CLAUDE_PRESET_MODELS: &[&str] = &[
-    "claude-4-sonnet",
     "claude-4.1-opus",
     "claude-4.5-haiku",
     "claude-4.5-opus",
     "claude-4.5-sonnet",
+];
+
+/// Zhipu 预设模型列表
+const ZHIPU_PRESET_MODELS: &[&str] = &[
+    "glm-4.7",
+    "glm-4.6",
+];
+
+/// Codex 预设模型列表
+const CODEX_PRESET_MODELS: &[&str] = &[
+    "gpt-5.2-codex",
+    "gpt-5.2",
+    "gpt-5.1-codex-max",
+    "gpt-5.1-codex-mini",
+    "gpt-5.1",
+];
+
+/// Gemini 预设模型列表
+const GEMINI_PRESET_MODELS: &[&str] = &[
+    "gemini-3-pro",
+    "gemini-2.5-pro",
+    "gemini-2.5-flash",
 ];
 
 /// 检测是否为 Anthropic 协议 URL
@@ -100,6 +121,64 @@ fn is_anthropic_protocol(base_url: &str) -> bool {
     url_lower.contains("aigocode.com")
 }
 
+/// 判断是否应使用 Claude 预设模型
+fn should_use_claude_preset(base_url: &str, model_type: &str, npm: Option<&str>) -> bool {
+    if model_type.eq_ignore_ascii_case("claude") {
+        return true;
+    }
+    if let Some(npm_name) = npm {
+        if npm_name.to_lowercase().contains("anthropic") {
+            return true;
+        }
+    }
+    is_anthropic_protocol(base_url)
+}
+
+/// 判断是否为 Zhipu 协议
+fn is_zhipu_protocol(base_url: &str) -> bool {
+    let url_lower = base_url.to_lowercase();
+    url_lower.contains("bigmodel.cn") ||
+        url_lower.contains("zhipu") ||
+        url_lower.contains("glm")
+}
+
+/// 解析预设模型列表
+fn resolve_preset_models(
+    base_url: &str,
+    model_type: &str,
+    npm: Option<&str>,
+) -> Option<(&'static str, Vec<String>)> {
+    if is_zhipu_protocol(base_url) {
+        return Some((
+            "zhipu",
+            ZHIPU_PRESET_MODELS.iter().map(|s| s.to_string()).collect(),
+        ));
+    }
+
+    if model_type.eq_ignore_ascii_case("codex") {
+        return Some((
+            "codex",
+            CODEX_PRESET_MODELS.iter().map(|s| s.to_string()).collect(),
+        ));
+    }
+
+    if model_type.eq_ignore_ascii_case("gemini") {
+        return Some((
+            "gemini",
+            GEMINI_PRESET_MODELS.iter().map(|s| s.to_string()).collect(),
+        ));
+    }
+
+    if should_use_claude_preset(base_url, model_type, npm) {
+        return Some((
+            "claude",
+            CLAUDE_PRESET_MODELS.iter().map(|s| s.to_string()).collect(),
+        ));
+    }
+
+    None
+}
+
 /// 从站点获取可用模型列表
 /// - Anthropic 协议: 返回预设的 Claude 模型列表
 /// - OpenAI 协议: 调用 /v1/models API 获取
@@ -109,25 +188,121 @@ pub async fn fetch_site_models(
     config_manager: State<'_, Mutex<ConfigManager>>,
 ) -> Result<Vec<String>, AppError> {
     // 获取 provider 信息
-    let (base_url, api_key) = {
+    let (base_url, api_key, model_type, npm) = {
         let manager = config_manager.lock().map_err(|e| AppError::Custom(e.to_string()))?;
         let provider = manager
             .opencode()
             .get_provider(&provider_name)?
             .ok_or_else(|| AppError::Custom(format!("Provider '{}' 不存在", provider_name)))?;
-        (provider.options.base_url.clone(), provider.options.api_key.clone())
+        (
+            provider.options.base_url.clone(),
+            provider.options.api_key.clone(),
+            provider.model_type.clone().unwrap_or_else(|| "none".to_string()),
+            provider.npm.clone(),
+        )
     };
-    
-    // 检测是否为 Anthropic 协议
-    if is_anthropic_protocol(&base_url) {
-        // Anthropic 协议: 直接返回预设的 Claude 模型列表
-        return Ok(CLAUDE_PRESET_MODELS.iter().map(|s| s.to_string()).collect());
+
+    // #region agent log
+    {
+        use std::fs::OpenOptions;
+        use std::io::Write;
+        let log_path = r#"e:\项目仓库\研究仓库\OpencodeNewbie\Open Switch\.cursor\debug.log"#;
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0);
+        let run_id = std::env::var("DEBUG_RUN_ID").unwrap_or_else(|_| "run1".to_string());
+        let base_url_str = base_url.replace('\\', "\\\\").replace('"', "\\\"");
+        let npm_str = npm.clone().unwrap_or_default().replace('\\', "\\\\").replace('"', "\\\"");
+        if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(log_path) {
+            let _ = writeln!(
+                file,
+                "{{\"sessionId\":\"debug-session\",\"runId\":\"{}\",\"hypothesisId\":\"H1\",\"location\":\"model.rs:fetch_site_models\",\"message\":\"fetch input\",\"data\":{{\"provider\":\"{}\",\"baseUrl\":\"{}\",\"modelType\":\"{}\",\"npm\":\"{}\"}},\"timestamp\":{}}}",
+                run_id,
+                provider_name,
+                base_url_str,
+                model_type,
+                npm_str,
+                ts
+            );
+        }
     }
+    // #endregion
+    
+    let preset = resolve_preset_models(&base_url, &model_type, npm.as_deref());
+    if let Some((source, models)) = preset {
+        // #region agent log
+        {
+            use std::fs::OpenOptions;
+            use std::io::Write;
+            let log_path = r#"e:\项目仓库\研究仓库\OpencodeNewbie\Open Switch\.cursor\debug.log"#;
+            let ts = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as i64)
+                .unwrap_or(0);
+            let run_id = std::env::var("DEBUG_RUN_ID").unwrap_or_else(|_| "run1".to_string());
+            if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(log_path) {
+                let _ = writeln!(
+                    file,
+                    "{{\"sessionId\":\"debug-session\",\"runId\":\"{}\",\"hypothesisId\":\"H2\",\"location\":\"model.rs:fetch_site_models\",\"message\":\"preset selected\",\"data\":{{\"source\":\"{}\",\"modelCount\":{}}},\"timestamp\":{}}}",
+                    run_id,
+                    source,
+                    models.len(),
+                    ts
+                );
+            }
+        }
+        // #endregion
+        return Ok(models);
+    }
+
+    // #region agent log
+    {
+        use std::fs::OpenOptions;
+        use std::io::Write;
+        let log_path = r#"e:\项目仓库\研究仓库\OpencodeNewbie\Open Switch\.cursor\debug.log"#;
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0);
+        let run_id = std::env::var("DEBUG_RUN_ID").unwrap_or_else(|_| "run1".to_string());
+        if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(log_path) {
+            let _ = writeln!(
+                file,
+                "{{\"sessionId\":\"debug-session\",\"runId\":\"{}\",\"hypothesisId\":\"H2\",\"location\":\"model.rs:fetch_site_models\",\"message\":\"detector selected\",\"data\":{{}},\"timestamp\":{}}}",
+                run_id,
+                ts
+            );
+        }
+    }
+    // #endregion
     
     // OpenAI 协议: 调用检测器获取模型列表
     let detector = Detector::new();
     let result = detector.detect_site(&base_url, &api_key).await;
-    
+
+    // #region agent log
+    {
+        use std::fs::OpenOptions;
+        use std::io::Write;
+        let log_path = r#"e:\项目仓库\研究仓库\OpencodeNewbie\Open Switch\.cursor\debug.log"#;
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0);
+        let run_id = std::env::var("DEBUG_RUN_ID").unwrap_or_else(|_| "run1".to_string());
+        if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(log_path) {
+            let _ = writeln!(
+                file,
+                "{{\"sessionId\":\"debug-session\",\"runId\":\"{}\",\"hypothesisId\":\"H3\",\"location\":\"model.rs:fetch_site_models\",\"message\":\"detect_site result\",\"data\":{{\"isAvailable\":{},\"modelCount\":{}}},\"timestamp\":{}}}",
+                run_id,
+                result.is_available,
+                result.available_models.len(),
+                ts
+            );
+        }
+    }
+    // #endregion
     if result.is_available {
         Ok(result.available_models)
     } else {

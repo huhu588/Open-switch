@@ -142,6 +142,7 @@ pub fn update_provider(
         Some(input.api_key),
         input.npm,
         input.description,
+        input.model_type,
     )?;
     Ok(())
 }

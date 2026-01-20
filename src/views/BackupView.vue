@@ -25,6 +25,12 @@ interface ExportedProvider {
   models: ExportedModel[]
 }
 
+interface ExportedOAuthConfig {
+  client_id?: string
+  client_secret?: string
+  scope?: string
+}
+
 interface ExportedMcpServer {
   name: string
   server_type: string
@@ -34,6 +40,7 @@ interface ExportedMcpServer {
   environment?: Record<string, string>
   url?: string
   headers?: Record<string, string>
+  oauth?: ExportedOAuthConfig
 }
 
 interface ExportedRule {
@@ -41,6 +48,7 @@ interface ExportedRule {
   location: string
   rule_type: string
   content: string
+  file_ext?: string
 }
 
 interface ExportedSkill {
@@ -231,7 +239,8 @@ function maskApiKey(key: string): string {
 </script>
 
 <template>
-  <div class="max-w-3xl mx-auto space-y-6">
+  <div class="h-full overflow-auto pb-6">
+    <div class="max-w-3xl mx-auto space-y-6">
     <!-- 导出区域 -->
     <div class="rounded-xl bg-surface/30 border border-border p-6">
       <div class="flex items-center gap-3 mb-4">
@@ -441,6 +450,7 @@ function maskApiKey(key: string): string {
           </div>
         </div>
       </div>
+    </div>
     </div>
   </div>
 </template>

@@ -192,6 +192,9 @@ export default {
     customJsonInvalid: 'Invalid JSON format',
     customCommandRequired: 'Please configure command or args',
     customAdded: 'Added {name}',
+    // Delete
+    deleteConfirm: 'Are you sure you want to delete MCP server "{name}"?',
+    serverDeleted: 'Deleted {name}',
     // Sync
     syncToOpenCode: 'Sync to OpenCode',
     syncing: 'Syncing...',

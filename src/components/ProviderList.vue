@@ -109,10 +109,10 @@ const emit = defineEmits<{
               </button>
               <button
                 @click.stop="emit('delete', provider.name)"
-                class="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
+                class="rounded p-1 text-red-400 hover:bg-red-500/20 hover:text-red-500 transition-colors"
                 :title="t('provider.delete')"
               >
-                <SvgIcon name="delete" :size="12" />
+                <SvgIcon name="trash" :size="12" />
               </button>
             </div>
           </div>

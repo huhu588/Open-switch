@@ -192,6 +192,9 @@ export default {
     customJsonInvalid: 'JSON 格式无效',
     customCommandRequired: '请配置 command 或 args',
     customAdded: '已添加 {name}',
+    // 删除
+    deleteConfirm: '确定要删除 MCP 服务器 "{name}" 吗？',
+    serverDeleted: '已删除 {name}',
     // 同步
     syncToOpenCode: '同步到 OpenCode',
     syncing: '同步中...',

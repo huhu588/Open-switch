@@ -35,6 +35,14 @@ pub struct ExportedModel {
     pub reasoning_effort: Option<String>,
 }
 
+/// Exported OAuth config
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExportedOAuthConfig {
+    pub client_id: Option<String>,
+    pub client_secret: Option<String>,
+    pub scope: Option<String>,
+}
+
 /// Exported MCP server data
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExportedMcpServer {
@@ -46,6 +54,9 @@ pub struct ExportedMcpServer {
     pub environment: Option<HashMap<String, String>>,
     pub url: Option<String>,
     pub headers: Option<HashMap<String, String>>,
+    /// OAuth 配置（用于远程服务器认证）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub oauth: Option<ExportedOAuthConfig>,
 }
 
 /// Exported Rule data
@@ -55,6 +66,13 @@ pub struct ExportedRule {
     pub location: String,
     pub rule_type: String,
     pub content: String,
+    /// 文件扩展名 (md 或 mdc)，用于导入时正确恢复
+    #[serde(default = "default_file_ext")]
+    pub file_ext: String,
+}
+
+fn default_file_ext() -> String {
+    "md".to_string()
 }
 
 /// Exported Skill data
@@ -114,13 +132,12 @@ pub struct ImportResult {
 
 fn get_skill_paths() -> Vec<(PathBuf, String)> {
     let mut paths = Vec::new();
-    if let Some(config_dir) = dirs::config_dir() {
+    // 与 opencode CLI 保持一致，所有平台使用 ~/.config/opencode
+    if let Some(home_dir) = dirs::home_dir() {
         paths.push((
-            config_dir.join("opencode").join("skill"),
+            home_dir.join(".config").join("opencode").join("skill"),
             "global_opencode".to_string(),
         ));
-    }
-    if let Some(home_dir) = dirs::home_dir() {
         paths.push((
             home_dir.join(".claude").join("skills"),
             "global_claude".to_string(),
@@ -167,15 +184,25 @@ fn create_backup_internal(manager: &ConfigManager) -> Result<BackupData, AppErro
     let mcp_config = manager.mcp().read_config()?;
     let mcp_servers: Vec<ExportedMcpServer> = mcp_config.servers
         .iter()
-        .map(|(name, server)| ExportedMcpServer {
-            name: name.clone(),
-            server_type: server.server_type.to_string(),
-            enabled: server.enabled,
-            timeout: server.timeout,
-            command: server.command.clone(),
-            environment: if server.environment.is_empty() { None } else { Some(server.environment.clone()) },
-            url: server.url.clone(),
-            headers: if server.headers.is_empty() { None } else { Some(server.headers.clone()) },
+        .map(|(name, server)| {
+            // 转换 OAuth 配置
+            let oauth = server.oauth.as_ref().map(|o| ExportedOAuthConfig {
+                client_id: o.client_id.clone(),
+                client_secret: o.client_secret.clone(),
+                scope: o.scope.clone(),
+            });
+            
+            ExportedMcpServer {
+                name: name.clone(),
+                server_type: server.server_type.to_string(),
+                enabled: server.enabled,
+                timeout: server.timeout,
+                command: server.command.clone(),
+                environment: if server.environment.is_empty() { None } else { Some(server.environment.clone()) },
+                url: server.url.clone(),
+                headers: if server.headers.is_empty() { None } else { Some(server.headers.clone()) },
+                oauth,
+            }
         })
         .collect();
     
@@ -192,6 +219,7 @@ fn create_backup_internal(manager: &ConfigManager) -> Result<BackupData, AppErro
                         location: location_key.clone(),
                         rule_type: "agents_md".to_string(),
                         content,
+                        file_ext: "md".to_string(),
                     });
                 }
             }
@@ -203,7 +231,7 @@ fn create_backup_internal(manager: &ConfigManager) -> Result<BackupData, AppErro
                 for entry in entries.flatten() {
                     let path = entry.path();
                     if path.is_file() {
-                        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+                        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("md");
                         if ext == "md" || ext == "mdc" {
                             if let Ok(content) = fs::read_to_string(&path) {
                                 let name = path.file_stem()
@@ -215,6 +243,7 @@ fn create_backup_internal(manager: &ConfigManager) -> Result<BackupData, AppErro
                                     location: location_key.clone(),
                                     rule_type: "rules_dir".to_string(),
                                     content,
+                                    file_ext: ext.to_string(),
                                 });
                             }
                         }
@@ -394,6 +423,13 @@ pub fn import_backup(
                 let _ = manager.mcp_mut().delete_server(&mcp.name);
             }
             
+            // 转换 OAuth 配置
+            let oauth = mcp.oauth.as_ref().map(|o| crate::config::McpOAuthConfig {
+                client_id: o.client_id.clone(),
+                client_secret: o.client_secret.clone(),
+                scope: o.scope.clone(),
+            });
+            
             let server = if mcp.server_type == "local" {
                 McpServer {
                     server_type: McpServerType::Local,
@@ -403,7 +439,7 @@ pub fn import_backup(
                     environment: mcp.environment.clone().unwrap_or_default(),
                     url: None,
                     headers: HashMap::new(),
-                    oauth: None,
+                    oauth: None, // 本地服务器不需要 OAuth
                     metadata: Default::default(),
                 }
             } else {
@@ -415,7 +451,7 @@ pub fn import_backup(
                     environment: HashMap::new(),
                     url: mcp.url.clone(),
                     headers: mcp.headers.clone().unwrap_or_default(),
-                    oauth: None,
+                    oauth, // 恢复 OAuth 配置
                     metadata: Default::default(),
                 }
             };
@@ -441,7 +477,9 @@ pub fn import_backup(
                         result.errors.push(format!("Create dir failed: {}", e));
                         continue;
                     }
-                    rules_dir.join(format!("{}.md", rule.name))
+                    // 使用保存的扩展名，保持 .md 或 .mdc 一致
+                    let ext = if rule.file_ext.is_empty() { "md" } else { &rule.file_ext };
+                    rules_dir.join(format!("{}.{}", rule.name, ext))
                 };
                 
                 if target_path.exists() && !options.overwrite_existing {
@@ -459,8 +497,9 @@ pub fn import_backup(
     
     if options.import_skills {
         for skill in &backup.skills {
+            // 与 opencode CLI 保持一致，所有平台使用 ~/.config/opencode
             let base_path = match skill.location.as_str() {
-                "global_opencode" => dirs::config_dir().map(|d| d.join("opencode").join("skill")),
+                "global_opencode" => dirs::home_dir().map(|d| d.join(".config").join("opencode").join("skill")),
                 "global_claude" => dirs::home_dir().map(|d| d.join(".claude").join("skills")),
                 _ => None,
             };

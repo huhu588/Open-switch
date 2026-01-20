@@ -153,7 +153,7 @@ async function addSelected() {
             <button
               @click="addSelected"
               :disabled="adding || selectedModels.size === 0"
-              class="px-4 py-2 text-sm font-medium rounded-lg bg-accent-500 text-white hover:bg-accent-600 disabled:opacity-50 transition-colors"
+              class="px-4 py-2 text-sm font-medium rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm"
             >
               {{ adding ? t('model.adding') : t('fetchModels.addModels', { count: selectedModels.size }) }}
             </button>

@@ -70,8 +70,12 @@ const supportedProtocols = computed(() => {
   return currentPreset.value?.supportedProtocols || ['anthropic', 'openai']
 })
 
-// 根据模型厂家获取模型列表
+// 根据模型厂家获取模型列表（智谱 AI 使用预设自带的模型）
 const presetModels = computed(() => {
+  // 如果选择了智谱 AI，使用预设自带的 GLM 模型
+  if (currentPreset.value?.name === '智谱 AI' && currentPreset.value.models.length > 0) {
+    return currentPreset.value.models
+  }
   return getModelsByType(form.value.model_type)
 })
 
@@ -84,8 +88,12 @@ function onPresetChange(presetName: string) {
     form.value.base_url = preset.baseUrl
     form.value.protocol = preset.defaultProtocol
     form.value.description = preset.description || ''
-    // 根据当前模型厂家选中所有模型
-    selectedModels.value = getModelsByType(form.value.model_type).map(m => m.id)
+    // 智谱 AI 使用预设自带的模型，其他使用模型厂家的模型
+    if (preset.name === '智谱 AI' && preset.models.length > 0) {
+      selectedModels.value = preset.models.map(m => m.id)
+    } else {
+      selectedModels.value = getModelsByType(form.value.model_type).map(m => m.id)
+    }
     // 智谱 AI 使用 v4，不需要添加 /v1 后缀
     autoAddV1Suffix.value = preset.name !== '智谱 AI'
   }
@@ -100,8 +108,10 @@ function toggleAllModels() {
   }
 }
 
-// 监听模型厂家变化，更新选中的模型
+// 监听模型厂家变化，更新选中的模型（智谱 AI 不受模型厂家影响）
 watch(() => form.value.model_type, () => {
+  // 智谱 AI 使用预设自带的模型，不需要更新
+  if (currentPreset.value?.name === '智谱 AI') return
   selectedModels.value = presetModels.value.map(m => m.id)
 })
 
@@ -213,6 +223,7 @@ async function save() {
           base_url: baseUrl,
           description: form.value.description || null,
           npm: npm,
+          model_type: form.value.model_type,
           auto_add_v1_suffix: autoAddV1Suffix.value
         }
       })

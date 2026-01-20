@@ -69,7 +69,7 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
   {
     name: 'i7 Relay',
     websiteUrl: 'https://i7dc.com',
-    apiKeyUrl: 'https://i7dc.com',
+    apiKeyUrl: 'https://docs.qq.com/doc/DZWhNb0dvaUdJVWpo',
     baseUrl: 'https://i7dc.com/api',
     defaultProtocol: 'anthropic',
     supportedProtocols: ['anthropic', 'openai'],

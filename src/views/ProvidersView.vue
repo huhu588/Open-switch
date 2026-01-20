@@ -30,7 +30,7 @@ watch(selectedModelType, () => {
 const filteredProviders = computed(() => {
   return store.providers.filter(p => {
     // 根据 provider 的 model_type 字段筛选，如果没有则默认显示在 claude
-    const providerModelType = (p as any).model_type || 'claude'
+    const providerModelType = p.model_type || 'claude'
     return providerModelType === selectedModelType.value
   })
 })

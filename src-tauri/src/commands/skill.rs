@@ -69,18 +69,20 @@ pub struct InstallSkillResult {
 fn get_skill_paths() -> Vec<(PathBuf, SkillLocation)> {
     let mut paths = Vec::new();
     
-    // 全局 OpenCode: ~/.config/opencode/skill/
-    if let Some(config_dir) = dirs::config_dir() {
+    // 全局配置路径（与 opencode CLI 保持一致，所有平台使用 ~/.config/opencode）
+    if let Some(home_dir) = dirs::home_dir() {
+        let global_opencode_path = home_dir.join(".config").join("opencode").join("skill");
+        let global_claude_path = home_dir.join(".claude").join("skills");
+
+        // 全局 OpenCode: ~/.config/opencode/skill/
         paths.push((
-            config_dir.join("opencode").join("skill"),
+            global_opencode_path,
             SkillLocation::GlobalOpenCode,
         ));
-    }
-    
-    // 全局 Claude: ~/.claude/skills/
-    if let Some(home_dir) = dirs::home_dir() {
+        
+        // 全局 Claude: ~/.claude/skills/
         paths.push((
-            home_dir.join(".claude").join("skills"),
+            global_claude_path,
             SkillLocation::GlobalClaude,
         ));
     }
@@ -297,8 +299,10 @@ pub async fn install_skill(input: InstallSkillInput) -> Result<InstallSkillResul
     // 确定安装路径
     let base_path = match input.location.as_str() {
         "global_opencode" => {
-            dirs::config_dir()
-                .ok_or_else(|| AppError::Custom("无法获取配置目录".to_string()))?
+            // 与 opencode CLI 保持一致，所有平台使用 ~/.config/opencode
+            dirs::home_dir()
+                .ok_or_else(|| AppError::Custom("无法获取主目录".to_string()))?
+                .join(".config")
                 .join("opencode")
                 .join("skill")
         }

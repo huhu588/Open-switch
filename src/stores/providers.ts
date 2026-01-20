@@ -8,6 +8,7 @@ export interface ProviderItem {
   base_url: string
   model_count: number
   description: string | null
+  model_type: string
   enabled: boolean
 }
 
