@@ -41,8 +41,9 @@ jobs:
           cd src-tauri/icons
           # 使用 ImageMagick 将 SVG 转为 PNG
           convert -background none -density 384 app-icon.svg -resize 1024x1024 icon.png
-          # 使用 Tauri CLI 生成全平台图标
-          npx @tauri-apps/cli icon icon.png
+          # 回到项目根目录，使用 Tauri CLI 生成全平台图标
+          cd ../..
+          npx @tauri-apps/cli icon src-tauri/icons/icon.png
 
       - name: Upload icons
         uses: actions/upload-artifact@v4
