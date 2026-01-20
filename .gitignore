@@ -5,10 +5,10 @@ node_modules/
 target/
 dist/
 
-# Lock files (regenerated on build)
+# Lock files
+# Note: package-lock.json should be committed for reproducible builds
 Cargo.lock
 bun.lock
-package-lock.json
 
 # Config files with sensitive data
 .opencode/
