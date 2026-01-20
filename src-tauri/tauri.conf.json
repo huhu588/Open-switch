@@ -13,7 +13,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "Open Switch - Coding Agent 配置管理",
+        "title": "Open Switch",
         "width": 1200,
         "height": 800,
         "minWidth": 900,
@@ -42,7 +42,7 @@
     ],
     "category": "DeveloperTool",
     "shortDescription": "OpenCode 配置管理工具",
-    "longDescription": "Open Switch - Coding Agent 配置管理工具，支持多 Provider 和 Model 管理、MCP 服务器配置、规则与技能管理。",
+    "longDescription": "Open Switch工具，支持多 Provider 和 Model 管理、MCP 服务器配置、规则与技能管理。",
     "windows": {
       "certificateThumbprint": null,
       "digestAlgorithm": "sha256",

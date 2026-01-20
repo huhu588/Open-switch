@@ -1,7 +1,7 @@
 export default {
   // 应用
   app: {
-    title: 'Open Switch - Coding Agent 配置管理工具'
+    title: 'Open Switch工具'
   },
 
   // 通用
@@ -282,7 +282,22 @@ export default {
     disabled: '已禁用',
     enable: '启用',
     disable: '禁用',
-    noRepos: '暂无技能仓库'
+    noRepos: '暂无技能仓库',
+    // 安装位置
+    locations: {
+      globalOpencode: '全局 OpenCode',
+      globalClaude: '全局 Claude',
+      projectOpencode: '项目 OpenCode',
+      projectClaude: '项目 Claude'
+    },
+    // 位置标签（带路径）
+    locationLabels: {
+      GlobalOpenCode: '全局 OpenCode (~/.config/opencode/skills/)',
+      GlobalClaude: '全局 Claude (~/.claude/skills/)',
+      ProjectOpenCode: '项目 OpenCode (.opencode/skills/)',
+      ProjectClaude: '项目 Claude (.claude/skills/)'
+    },
+    rateLimitError: 'GitHub API 速率限制已达上限，请稍后再试'
   },
 
   // 规则页面

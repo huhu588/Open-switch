@@ -77,7 +77,7 @@ fn default_file_ext() -> String {
 
 /// Exported skills data
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Exportedskills {
+pub struct ExportedSkills {
     pub name: String,
     pub location: String,
     pub content: String,
@@ -92,7 +92,7 @@ pub struct BackupData {
     pub providers: Vec<ExportedProvider>,
     pub mcp_servers: Vec<ExportedMcpServer>,
     pub rules: Vec<ExportedRule>,
-    pub skills: Vec<Exportedskills>,
+    pub skills: Vec<ExportedSkills>,
 }
 
 /// Export statistics
@@ -253,7 +253,7 @@ fn create_backup_internal(manager: &ConfigManager) -> Result<BackupData, AppErro
         }
     }
     
-    let mut skills: Vec<Exportedskills> = Vec::new();
+    let mut skills: Vec<ExportedSkills> = Vec::new();
     for (base_path, location) in get_skills_paths() {
         if !base_path.exists() {
             continue;
@@ -269,7 +269,7 @@ fn create_backup_internal(manager: &ConfigManager) -> Result<BackupData, AppErro
                             .unwrap_or("unknown")
                             .to_string();
                         if let Ok(content) = fs::read_to_string(&skills_file) {
-                            skills.push(Exportedskills {
+                            skills.push(ExportedSkills {
                                 name,
                                 location: location.clone(),
                                 content,

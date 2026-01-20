@@ -234,8 +234,6 @@ fn save_repo_enabled_states(states: &std::collections::HashMap<String, bool>) ->
 /// 切换仓库启用状态
 #[tauri::command]
 pub fn toggle_skills_repo_enabled(repo_id: String, enabled: bool) -> Result<Vec<SkillsRepository>, AppError> {
-    println!("[toggle_skills_repo_enabled] 设置仓库 {} 启用状态为: {}", repo_id, enabled);
-    
     // 加载当前状态
     let mut states = load_repo_enabled_states();
     states.insert(repo_id.clone(), enabled);
@@ -259,7 +257,6 @@ pub fn toggle_skills_repo(repo_id: String) -> Result<Vec<SkillsRepository>, AppE
         .unwrap_or(true);
     
     let new_enabled = !current_enabled;
-    println!("[toggle_skills_repo] 切换仓库 {} 状态: {} -> {}", repo_id, current_enabled, new_enabled);
     
     // 使用新的状态保存系统
     let mut states = load_repo_enabled_states();
@@ -287,33 +284,22 @@ pub async fn fetch_skills_from_repo(repo_id: String) -> Result<Vec<RecommendedSk
         .map_err(|e| AppError::Custom(format!("创建 HTTP 客户端失败: {}", e)))?;
     
     // 尝试获取 index.json
-    println!("[fetch_skills] 尝试获取索引文件: {}", repo.index_url);
     let response = client.get(&repo.index_url)
         .header("User-Agent", "Open-Switch/1.0")
         .send()
         .await
         .map_err(|e| AppError::Custom(format!("请求失败: {}", e)))?;
     
-    println!("[fetch_skills] 响应状态: {}", response.status());
-    
     if !response.status().is_success() {
         // 如果没有 index.json，尝试扫描仓库目录
-        println!("[fetch_skills] index.json 不存在，尝试扫描仓库目录...");
         return fetch_skills_by_scanning(&client, repo).await;
     }
     
     let body = response.text().await
         .map_err(|e| AppError::Custom(format!("读取响应失败: {}", e)))?;
     
-    println!("[fetch_skills] 响应内容长度: {} 字节", body.len());
-    
     let index: SkillsIndex = serde_json::from_str(&body)
-        .map_err(|e| {
-            println!("[fetch_skills] 解析失败，内容预览: {}", &body.chars().take(200).collect::<String>());
-            AppError::Custom(format!("解析索引文件失败: {}", e))
-        })?;
-    
-    println!("[fetch_skills] 成功解析索引，包含 {} 个技能", index.skills.len());
+        .map_err(|e| AppError::Custom(format!("解析索引文件失败: {}", e)))?;
     
     // 从 index_url 中提取分支名
     let branch = extract_branch_from_url(&repo.index_url).unwrap_or("main".to_string());
@@ -347,10 +333,32 @@ pub async fn fetch_skills_from_repo(repo_id: String) -> Result<Vec<RecommendedSk
     Ok(skills)
 }
 
+/// 检测仓库的默认分支
+async fn detect_default_branch(client: &reqwest::Client, owner: &str, repo_name: &str) -> String {
+    // 尝试通过 GitHub API 获取默认分支
+    let api_url = format!("https://api.github.com/repos/{}/{}", owner, repo_name);
+    
+    if let Ok(response) = client.get(&api_url)
+        .header("User-Agent", "Open-Switch/1.0")
+        .header("Accept", "application/vnd.github.v3+json")
+        .send()
+        .await
+    {
+        if response.status().is_success() {
+            if let Ok(json) = response.json::<serde_json::Value>().await {
+                if let Some(branch) = json.get("default_branch").and_then(|b| b.as_str()) {
+                    return branch.to_string();
+                }
+            }
+        }
+    }
+    
+    // 默认使用 main
+    "main".to_string()
+}
+
 /// 通过 GitHub API 扫描仓库目录获取技能
 async fn fetch_skills_by_scanning(client: &reqwest::Client, repo: &SkillsRepository) -> Result<Vec<RecommendedSkills>, AppError> {
-    println!("[scanning] 开始扫描仓库: {}", repo.url);
-    
     let parts: Vec<&str> = repo.url.trim_end_matches('/').split('/').collect();
     if parts.len() < 2 {
         return Err(AppError::Custom("无效的仓库 URL".to_string()));
@@ -358,8 +366,6 @@ async fn fetch_skills_by_scanning(client: &reqwest::Client, repo: &SkillsReposit
     
     let owner = parts[parts.len() - 2];
     let repo_name = parts[parts.len() - 1];
-    
-    println!("[scanning] 仓库所有者: {}, 仓库名: {}", owner, repo_name);
     
     let mut all_skills = Vec::new();
     
@@ -371,23 +377,28 @@ async fn fetch_skills_by_scanning(client: &reqwest::Client, repo: &SkillsReposit
             owner, repo_name, path
         );
         
-        println!("[scanning] 尝试路径: {}", api_url);
-        
         let response = match client.get(&api_url)
             .header("User-Agent", "Open-Switch/1.0")
             .header("Accept", "application/vnd.github.v3+json")
             .send()
             .await {
                 Ok(r) => r,
-                Err(e) => {
-                    println!("[scanning] 请求失败: {}", e);
-                    continue;
-                },
+                Err(_) => continue,
             };
         
-        println!("[scanning] 响应状态: {}", response.status());
+        let status = response.status();
         
-        if !response.status().is_success() {
+        // 处理 GitHub API 速率限制
+        if status.as_u16() == 403 {
+            if let Some(remaining) = response.headers().get("x-ratelimit-remaining") {
+                if remaining.to_str().unwrap_or("1") == "0" {
+                    return Err(AppError::Custom("GitHub API 速率限制已达上限，请稍后再试".to_string()));
+                }
+            }
+            continue;
+        }
+        
+        if !status.is_success() {
             continue;
         }
         
@@ -401,15 +412,14 @@ async fn fetch_skills_by_scanning(client: &reqwest::Client, repo: &SkillsReposit
         
         let contents: Vec<GitHubContent> = match response.json().await {
             Ok(c) => c,
-            Err(e) => {
-                println!("[scanning] 解析目录内容失败: {}", e);
-                continue;
-            },
+            Err(_) => continue,
         };
         
-        println!("[scanning] 在 {} 目录找到 {} 个条目", path, contents.len());
-        
-        let branch = extract_branch_from_url(&repo.index_url).unwrap_or("main".to_string());
+        // 尝试从 index_url 提取分支，如果失败则检测默认分支
+        let branch = match extract_branch_from_url(&repo.index_url) {
+            Some(b) => b,
+            None => detect_default_branch(client, owner, repo_name).await,
+        };
         let base_raw_url = format!(
             "https://raw.githubusercontent.com/{}/{}/{}/",
             owner, repo_name, branch
@@ -468,12 +478,10 @@ async fn fetch_skills_by_scanning(client: &reqwest::Client, repo: &SkillsReposit
         }
         
         if !all_skills.is_empty() {
-            println!("[scanning] 找到 {} 个技能，停止搜索其他路径", all_skills.len());
             break;
         }
     }
     
-    println!("[scanning] 扫描完成，共找到 {} 个技能", all_skills.len());
     Ok(all_skills)
 }
 
@@ -483,24 +491,34 @@ pub async fn discover_skills() -> Result<Vec<RecommendedSkills>, AppError> {
     let repos = load_skills_repos();
     let enabled_repos: Vec<_> = repos.into_iter().filter(|r| r.enabled).collect();
     
-    println!("[discover_skills] 开始从 {} 个启用的仓库获取技能", enabled_repos.len());
+    if enabled_repos.is_empty() {
+        return Ok(Vec::new());
+    }
     
     let mut all_skills = Vec::new();
+    let mut failed_repos = Vec::new();
     
-    for repo in enabled_repos {
-        println!("[discover_skills] 正在获取仓库: {} ({})", repo.name, repo.index_url);
+    for repo in &enabled_repos {
         match fetch_skills_from_repo(repo.id.clone()).await {
             Ok(skills) => {
-                println!("[discover_skills] 仓库 {} 成功获取 {} 个技能", repo.name, skills.len());
                 all_skills.extend(skills);
-            },
+            }
             Err(e) => {
-                println!("[discover_skills] 从仓库 {} 获取技能失败: {}", repo.name, e);
+                // 记录失败的仓库，但继续处理其他仓库
+                failed_repos.push(format!("{}: {}", repo.name, e));
             }
         }
     }
     
-    println!("[discover_skills] 总共发现 {} 个技能", all_skills.len());
+    // 只有当所有仓库都失败时才返回错误
+    // 如果有仓库成功（即使返回空列表），则正常返回结果
+    if failed_repos.len() == enabled_repos.len() && !enabled_repos.is_empty() {
+        return Err(AppError::Custom(format!(
+            "获取技能失败: {}",
+            failed_repos.join("; ")
+        )));
+    }
+    
     Ok(all_skills)
 }
 
@@ -704,14 +722,31 @@ pub async fn install_skills(input: InstallSkillsInput) -> Result<InstallSkillsRe
     std::fs::create_dir_all(&skills_dir)
         .map_err(|e| AppError::Custom(format!("创建目录失败: {}", e)))?;
     
+    // 定义清理函数，在失败时删除空目录
+    let cleanup_on_failure = |dir: &std::path::Path| {
+        // 只有目录为空时才删除
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            if entries.count() == 0 {
+                let _ = std::fs::remove_dir(dir);
+            }
+        }
+    };
+    
     let client = reqwest::Client::new();
-    let response = client.get(&input.raw_url)
+    let response = match client.get(&input.raw_url)
         .header("User-Agent", "Open-Switch/1.0")
         .send()
         .await
-        .map_err(|e| AppError::Custom(format!("下载失败: {}", e)))?;
+    {
+        Ok(r) => r,
+        Err(e) => {
+            cleanup_on_failure(&skills_dir);
+            return Err(AppError::Custom(format!("下载失败: {}", e)));
+        }
+    };
     
     if !response.status().is_success() {
+        cleanup_on_failure(&skills_dir);
         return Ok(InstallSkillsResult {
             success: false,
             message: format!("下载失败: HTTP {}", response.status()),
@@ -719,13 +754,19 @@ pub async fn install_skills(input: InstallSkillsInput) -> Result<InstallSkillsRe
         });
     }
     
-    let content = response.text()
-        .await
-        .map_err(|e| AppError::Custom(format!("读取内容失败: {}", e)))?;
+    let content = match response.text().await {
+        Ok(c) => c,
+        Err(e) => {
+            cleanup_on_failure(&skills_dir);
+            return Err(AppError::Custom(format!("读取内容失败: {}", e)));
+        }
+    };
     
     let skills_file = skills_dir.join("SKILL.md");
-    std::fs::write(&skills_file, content)
-        .map_err(|e| AppError::Custom(format!("写入文件失败: {}", e)))?;
+    if let Err(e) = std::fs::write(&skills_file, &content) {
+        cleanup_on_failure(&skills_dir);
+        return Err(AppError::Custom(format!("写入文件失败: {}", e)));
+    }
     
     Ok(InstallSkillsResult {
         success: true,

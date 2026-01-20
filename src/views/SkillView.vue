@@ -40,7 +40,7 @@ interface InstallSkillResult {
   installed_path: string | null
 }
 
-interface skillsRepository {
+interface SkillsRepository {
   id: string
   name: string
   url: string
@@ -75,7 +75,7 @@ const showContentModal = ref(false)
 
 // 仓库管理
 const showRepoModal = ref(false)
-const repos = ref<skillsRepository[]>([])
+const repos = ref<SkillsRepository[]>([])
 const newRepoUrl = ref('')
 const addingRepo = ref(false)
 
@@ -104,13 +104,21 @@ const groupedSkills = computed(() => {
   return groups
 })
 
-// 位置标签
-const locationLabels: Record<string, string> = {
-  'GlobalOpenCode': '全局 OpenCode (~/.config/opencode/skills/)',
-  'GlobalClaude': '全局 Claude (~/.claude/skills/)',
-  'ProjectOpenCode': '项目 OpenCode (.opencode/skills/)',
-  'ProjectClaude': '项目 Claude (.claude/skills/)',
-}
+// 位置标签（使用 computed 以支持 i18n 动态切换）
+const locationLabels = computed(() => ({
+  'GlobalOpenCode': t('skills.locationLabels.GlobalOpenCode'),
+  'GlobalClaude': t('skills.locationLabels.GlobalClaude'),
+  'ProjectOpenCode': t('skills.locationLabels.ProjectOpenCode'),
+  'ProjectClaude': t('skills.locationLabels.ProjectClaude'),
+}))
+
+// 安装位置选项（使用 computed 以支持 i18n）
+const installLocationOptions = computed(() => [
+  { key: 'global_opencode', label: t('skills.locations.globalOpencode') },
+  { key: 'global_claude', label: t('skills.locations.globalClaude') },
+  { key: 'project_opencode', label: t('skills.locations.projectOpencode') },
+  { key: 'project_claude', label: t('skills.locations.projectClaude') },
+])
 
 // 加载已安装的 skills
 async function loadInstalledSkills() {
@@ -302,7 +310,7 @@ const filteredDiscoveredCount = computed(() => {
 // 加载仓库列表
 async function loadRepos() {
   try {
-    repos.value = await invoke<SkillRepository[]>('get_skills_repos')
+    repos.value = await invoke<SkillsRepository[]>('get_skills_repos')
   } catch (e) {
     console.error('加载仓库列表失败:', e)
   }
@@ -326,7 +334,7 @@ async function addRepo() {
     const repoName = parts[parts.length - 1] || 'custom-repo'
     const owner = parts[parts.length - 2] || 'unknown'
     
-    const repo: skillsRepository = {
+    const repo: SkillsRepository = {
       id: `custom-${Date.now()}`,
       name: `${owner}/${repoName}`,
       url: url,
@@ -335,7 +343,7 @@ async function addRepo() {
       enabled: true
     }
     
-    repos.value = await invoke<SkillRepository[]>('add_skills_repo', { repo })
+    repos.value = await invoke<SkillsRepository[]>('add_skills_repo', { repo })
     newRepoUrl.value = ''
     showMessage('仓库添加成功', 'success')
   } catch (e) {
@@ -348,7 +356,7 @@ async function addRepo() {
 // 删除仓库
 async function deleteRepo(repoId: string) {
   try {
-    repos.value = await invoke<SkillRepository[]>('delete_skills_repo', { repoId })
+    repos.value = await invoke<SkillsRepository[]>('delete_skills_repo', { repoId })
     showMessage('仓库已删除', 'success')
   } catch (e) {
     showMessage(`删除失败: ${e}`, 'error')
@@ -358,7 +366,7 @@ async function deleteRepo(repoId: string) {
 // 切换仓库启用状态
 async function toggleRepo(repoId: string) {
   try {
-    repos.value = await invoke<SkillRepository[]>('toggle_skills_repo', { repoId })
+    repos.value = await invoke<SkillsRepository[]>('toggle_skills_repo', { repoId })
   } catch (e) {
     showMessage(`操作失败: ${e}`, 'error')
   }
@@ -591,18 +599,18 @@ onMounted(() => {
             <label class="text-sm font-medium mb-2 block">{{ t('skills.installLocation') }}</label>
             <div class="flex flex-wrap gap-2">
               <label 
-                v-for="(label, key) in { global_opencode: '全局 OpenCode', global_claude: '全局 Claude', project_opencode: '项目 OpenCode', project_claude: '项目 Claude' }" 
-                :key="key"
+                v-for="option in installLocationOptions" 
+                :key="option.key"
                 class="flex items-center gap-2 px-3 py-1.5 rounded-lg cursor-pointer transition-all text-sm"
-                :class="installLocation === key ? 'bg-accent/20 text-accent' : 'bg-surface hover:bg-surface-hover'"
+                :class="installLocation === option.key ? 'bg-accent/20 text-accent' : 'bg-surface hover:bg-surface-hover'"
               >
                 <input
                   type="radio"
-                  :value="key"
+                  :value="option.key"
                   v-model="installLocation"
                   class="hidden"
                 />
-                {{ label }}
+                {{ option.label }}
               </label>
             </div>
           </div>
@@ -801,13 +809,13 @@ onMounted(() => {
             <label class="text-sm font-medium mb-2 block">{{ t('skills.installLocation') }}</label>
             <div class="flex flex-wrap gap-2">
               <label 
-                v-for="(label, key) in { global_opencode: '全局 OpenCode', global_claude: '全局 Claude', project_opencode: '项目 OpenCode', project_claude: '项目 Claude' }" 
-                :key="key"
+                v-for="option in installLocationOptions" 
+                :key="option.key"
                 class="flex items-center gap-2 px-3 py-1.5 rounded-lg cursor-pointer transition-all text-sm"
-                :class="installLocation === key ? 'bg-accent/20 text-accent' : 'bg-surface hover:bg-surface-hover'"
+                :class="installLocation === option.key ? 'bg-accent/20 text-accent' : 'bg-surface hover:bg-surface-hover'"
               >
-                <input type="radio" :value="key" v-model="installLocation" class="hidden" />
-                {{ label }}
+                <input type="radio" :value="option.key" v-model="installLocation" class="hidden" />
+                {{ option.label }}
               </label>
             </div>
           </div>

@@ -282,7 +282,22 @@ export default {
     disabled: 'Disabled',
     enable: 'Enable',
     disable: 'Disable',
-    noRepos: 'No Skills repositories'
+    noRepos: 'No Skills repositories',
+    // Install locations
+    locations: {
+      globalOpencode: 'Global OpenCode',
+      globalClaude: 'Global Claude',
+      projectOpencode: 'Project OpenCode',
+      projectClaude: 'Project Claude'
+    },
+    // Location labels with paths
+    locationLabels: {
+      GlobalOpenCode: 'Global OpenCode (~/.config/opencode/skills/)',
+      GlobalClaude: 'Global Claude (~/.claude/skills/)',
+      ProjectOpenCode: 'Project OpenCode (.opencode/skills/)',
+      ProjectClaude: 'Project Claude (.claude/skills/)'
+    },
+    rateLimitError: 'GitHub API rate limit reached, please try again later'
   },
 
   // Rule page

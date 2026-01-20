@@ -51,7 +51,7 @@ interface ExportedRule {
   file_ext?: string
 }
 
-interface Exportedskills {
+interface ExportedSkills {
   name: string
   location: string
   content: string
@@ -64,7 +64,7 @@ interface BackupData {
   providers: ExportedProvider[]
   mcp_servers: ExportedMcpServer[]
   rules: ExportedRule[]
-  skills: Exportedskills[]
+  skills: ExportedSkills[]
 }
 
 interface ExportStats {

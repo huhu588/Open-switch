@@ -63,7 +63,7 @@ function cancel() {
             <button
               @click="confirm"
               class="px-4 py-2 text-sm font-medium rounded-lg text-white transition-colors"
-              :class="danger ? 'bg-error-500 hover:bg-error-600' : 'bg-accent-500 hover:bg-accent-600'"
+              :class="danger ? 'bg-red-500 hover:bg-red-600' : 'bg-accent hover:bg-accent/90'"
             >
               {{ confirmText || t('common.confirm') }}
             </button>
