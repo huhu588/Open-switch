@@ -1,6 +1,6 @@
 # Open Switch - OpenCode 配置管理工具
 
-OpenCode 配置管理工具，支持多 Provider 和 Model 管理
+OpenCode 配置管理工具，支持多 Provider 和 Model 管理(该项目为二开，参考opcd和cc switch)
 
 ## 支持
 
