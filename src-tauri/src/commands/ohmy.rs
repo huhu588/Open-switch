@@ -7,6 +7,14 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
+// Windows 平台特定：用于隐藏命令行窗口
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
+// Windows CREATE_NO_WINDOW 标志
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
 /// oh-my-opencode 安装状态
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OhMyStatus {
@@ -85,6 +93,13 @@ fn get_opencode_config_path() -> Result<PathBuf, String> {
 fn check_bun_installed() -> (bool, Option<String>) {
     // 首先尝试使用完整路径（处理刚安装但还没加入 PATH 的情况）
     if let Some(bun_path) = get_bun_path() {
+        #[cfg(target_os = "windows")]
+        let output = Command::new(&bun_path)
+            .arg("--version")
+            .creation_flags(CREATE_NO_WINDOW) // 隐藏终端窗口
+            .output();
+        
+        #[cfg(not(target_os = "windows"))]
         let output = Command::new(&bun_path)
             .arg("--version")
             .output();
@@ -98,15 +113,16 @@ fn check_bun_installed() -> (bool, Option<String>) {
     }
     
     // 然后尝试从 PATH 中查找
-    let output = if cfg!(target_os = "windows") {
-        Command::new("cmd")
-            .args(["/C", "bun", "--version"])
-            .output()
-    } else {
-        Command::new("bun")
-            .arg("--version")
-            .output()
-    };
+    #[cfg(target_os = "windows")]
+    let output = Command::new("cmd")
+        .args(["/C", "bun", "--version"])
+        .creation_flags(CREATE_NO_WINDOW) // 隐藏终端窗口
+        .output();
+    
+    #[cfg(not(target_os = "windows"))]
+    let output = Command::new("bun")
+        .arg("--version")
+        .output();
 
     match output {
         Ok(out) if out.status.success() => {
@@ -294,15 +310,16 @@ pub async fn get_agent_infos() -> Result<Vec<AgentInfo>, String> {
 
 /// 检测 npm/npx 是否已安装
 fn check_npm_installed() -> bool {
-    let output = if cfg!(target_os = "windows") {
-        Command::new("cmd")
-            .args(["/C", "npm", "--version"])
-            .output()
-    } else {
-        Command::new("npm")
-            .arg("--version")
-            .output()
-    };
+    #[cfg(target_os = "windows")]
+    let output = Command::new("cmd")
+        .args(["/C", "npm", "--version"])
+        .creation_flags(CREATE_NO_WINDOW) // 隐藏终端窗口
+        .output();
+    
+    #[cfg(not(target_os = "windows"))]
+    let output = Command::new("npm")
+        .arg("--version")
+        .output();
     
     matches!(output, Ok(out) if out.status.success())
 }
@@ -310,21 +327,20 @@ fn check_npm_installed() -> bool {
 /// 安装 Bun
 #[tauri::command]
 pub async fn install_bun() -> Result<String, String> {
-    let output = if cfg!(target_os = "windows") {
-        // Windows: 使用 PowerShell 安装，设置执行策略
-        Command::new("powershell")
-            .args([
-                "-ExecutionPolicy", "Bypass",
-                "-Command", 
-                "irm bun.sh/install.ps1 | iex"
-            ])
-            .output()
-    } else {
-        // macOS/Linux: 使用 curl 安装
-        Command::new("bash")
-            .args(["-c", "curl -fsSL https://bun.sh/install | bash"])
-            .output()
-    };
+    #[cfg(target_os = "windows")]
+    let output = Command::new("powershell")
+        .args([
+            "-ExecutionPolicy", "Bypass",
+            "-Command", 
+            "irm bun.sh/install.ps1 | iex"
+        ])
+        .creation_flags(CREATE_NO_WINDOW) // 隐藏终端窗口
+        .output();
+    
+    #[cfg(not(target_os = "windows"))]
+    let output = Command::new("bash")
+        .args(["-c", "curl -fsSL https://bun.sh/install | bash"])
+        .output();
 
     match output {
         Ok(out) => {
@@ -381,15 +397,16 @@ pub async fn install_ohmy() -> Result<String, String> {
     };
     
     // 使用 bun x 而不是 bunx（更可靠）
-    let output = if cfg!(target_os = "windows") {
-        Command::new("cmd")
-            .args(["/C", &bun_cmd, "x", "oh-my-opencode", "install"])
-            .output()
-    } else {
-        Command::new(&bun_cmd)
-            .args(["x", "oh-my-opencode", "install"])
-            .output()
-    };
+    #[cfg(target_os = "windows")]
+    let output = Command::new("cmd")
+        .args(["/C", &bun_cmd, "x", "oh-my-opencode", "install"])
+        .creation_flags(CREATE_NO_WINDOW) // 隐藏终端窗口
+        .output();
+    
+    #[cfg(not(target_os = "windows"))]
+    let output = Command::new(&bun_cmd)
+        .args(["x", "oh-my-opencode", "install"])
+        .output();
     
     match output {
         Ok(out) => {
