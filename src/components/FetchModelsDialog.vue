@@ -41,7 +41,7 @@ async function fetchModels() {
   
   try {
     models.value = await invoke<string[]>('fetch_site_models', {
-      provider_name: props.providerName
+      providerName: props.providerName
     })
     // 默认全选
     selectedModels.value = new Set(models.value)
@@ -82,8 +82,8 @@ async function addSelected() {
   
   try {
     await invoke('add_models_batch', {
-      provider_name: props.providerName,
-      model_ids: Array.from(selectedModels.value)
+      providerName: props.providerName,
+      modelIds: Array.from(selectedModels.value)
     })
     emit('added')
     close()

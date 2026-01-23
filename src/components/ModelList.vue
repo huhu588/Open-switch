@@ -18,6 +18,7 @@ const props = withDefaults(defineProps<Props>(), {
 const emit = defineEmits<{
   select: [id: string]
   add: []
+  edit: [model: { id: string, name: string }]
   delete: [id: string]
   fetch: []
 }>()
@@ -84,13 +85,22 @@ const emit = defineEmits<{
             <span class="font-mono text-xs font-medium truncate" :class="{ 'text-accent': model.id === selected }">
               {{ model.id }}
             </span>
-            <button
-              @click.stop="emit('delete', model.id)"
-              class="rounded p-1 text-red-400 hover:bg-red-500/20 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
-              :title="t('model.delete')"
-            >
-              <SvgIcon name="trash" :size="12" />
-            </button>
+            <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+              <button
+                @click.stop="emit('edit', { id: model.id, name: model.name })"
+                class="rounded p-1 text-blue-400 hover:bg-blue-500/20 hover:text-blue-500 transition-all"
+                :title="t('model.edit')"
+              >
+                <SvgIcon name="edit" :size="12" />
+              </button>
+              <button
+                @click.stop="emit('delete', model.id)"
+                class="rounded p-1 text-red-400 hover:bg-red-500/20 hover:text-red-500 transition-all"
+                :title="t('model.delete')"
+              >
+                <SvgIcon name="trash" :size="12" />
+              </button>
+            </div>
           </div>
         </li>
       </ul>

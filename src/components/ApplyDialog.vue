@@ -39,7 +39,7 @@ watch(() => props.visible, async (visible) => {
     try {
       // 检查第一个 provider 是否已应用到全局/项目配置
       const status = await invoke<{ in_global: boolean; in_project: boolean }>('check_provider_applied', {
-        provider_name: props.providerNames[0]
+        providerName: props.providerNames[0]
       })
       // 检查对话框是否仍然打开
       if (!props.visible) return

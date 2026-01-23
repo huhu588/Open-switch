@@ -4,7 +4,8 @@ use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 use tauri::State;
 
-use crate::config::{ConfigManager, OpenCodeModelInfo, Detector};
+use std::collections::HashMap;
+use crate::config::{ConfigManager, Detector, OpenCodeModelInfo, OpenCodeThinkingConfig, OpenCodeVariantConfig};
 use crate::error::AppError;
 
 /// Model 列表项
@@ -12,6 +13,8 @@ use crate::error::AppError;
 pub struct ModelItem {
     pub id: String,
     pub name: String,
+    /// 思考预算 (Claude 模型)
+    pub thinking_budget: Option<u32>,
 }
 
 /// 添加 Model 的参数
@@ -19,8 +22,12 @@ pub struct ModelItem {
 pub struct ModelInput {
     pub id: String,
     pub name: Option<String>,
-    /// 推理强度 (仅用于 GPT5.2/GPT5.1 等推理模型)
+    /// 推理强度 (OpenAI/Codex 模型)
+    /// 可选值: "none", "minimal", "low", "medium", "high", "xhigh"
     pub reasoning_effort: Option<String>,
+    /// 思考预算 (Anthropic/Claude 模型)
+    /// 建议范围: 1024 - 128000
+    pub thinking_budget: Option<u32>,
 }
 
 /// 获取 Provider 下的所有 Model
@@ -34,15 +41,48 @@ pub fn get_models(
     
     let mut items: Vec<ModelItem> = models
         .iter()
-        .map(|(id, info)| ModelItem {
-            id: id.clone(),
-            name: info.name.clone(),
+        .map(|(id, info)| {
+            // 从 options.thinking 中提取 thinking_budget
+            let thinking_budget = info.options.as_ref()
+                .and_then(|opts| opts.thinking.as_ref())
+                .map(|t| t.budget_tokens)
+                .or(info.thinking_budget);
+            ModelItem {
+                id: id.clone(),
+                name: info.name.clone(),
+                thinking_budget,
+            }
         })
         .collect();
     
     items.sort_by(|a, b| a.id.cmp(&b.id));
     
     Ok(items)
+}
+
+/// 获取单个 Model 详情
+#[tauri::command]
+pub fn get_model(
+    provider_name: String,
+    model_id: String,
+    config_manager: State<'_, Mutex<ConfigManager>>,
+) -> Result<ModelItem, AppError> {
+    let manager = config_manager.lock().map_err(|e| AppError::Custom(e.to_string()))?;
+    let models = manager.opencode().get_models(&provider_name)?;
+    
+    let info = models.get(&model_id)
+        .ok_or_else(|| AppError::Custom(format!("模型 '{}' 不存在", model_id)))?;
+    
+    let thinking_budget = info.options.as_ref()
+        .and_then(|opts| opts.thinking.as_ref())
+        .map(|t| t.budget_tokens)
+        .or(info.thinking_budget);
+    
+    Ok(ModelItem {
+        id: model_id,
+        name: info.name.clone(),
+        thinking_budget,
+    })
 }
 
 /// 添加 Model
@@ -54,15 +94,121 @@ pub fn add_model(
 ) -> Result<(), AppError> {
     let mut manager = config_manager.lock().map_err(|e| AppError::Custom(e.to_string()))?;
     
+    // 获取 provider 的 model_type
+    let model_type = manager.opencode()
+        .get_provider(&provider_name)?
+        .and_then(|p| p.model_type.clone())
+        .unwrap_or_else(|| "claude".to_string());
+    
+    // 根据 model_type 生成 variants
+    let variants = build_variants(&model_type);
+    
     let model_info = OpenCodeModelInfo {
         id: input.id.clone(),
         name: input.name.unwrap_or_else(|| input.id.clone()),
         limit: None,
-        reasoning_effort: input.reasoning_effort,
+        reasoning: Some(true),  // 启用 opencode 思考强度切换 (ctrl+t)
+        variants: Some(variants),
+        options: None,
+        reasoning_effort: None,
+        thinking_budget: None,
         model_detection: None,
     };
     
     manager.opencode_mut().add_model(&provider_name, input.id, model_info)?;
+    
+    Ok(())
+}
+
+/// 根据 model_type 构建 variants 配置
+/// - Claude: 默认 / High / Max (使用 thinking.budgetTokens)
+/// - Codex/Gemini: 默认 / Minimal / Low / Medium / High (使用 reasoningEffort)
+/// 根据 model_type 生成默认 variants 配置
+pub fn build_variants(model_type: &str) -> HashMap<String, OpenCodeVariantConfig> {
+    let mut variants = HashMap::new();
+    
+    if model_type.eq_ignore_ascii_case("claude") {
+        // Claude 模型: 默认 / High / Max
+        variants.insert("default".to_string(), OpenCodeVariantConfig {
+            reasoning_effort: None,
+            thinking: Some(OpenCodeThinkingConfig {
+                thinking_type: "enabled".to_string(),
+                budget_tokens: 10000,  // 默认 10K
+            }),
+        });
+        variants.insert("high".to_string(), OpenCodeVariantConfig {
+            reasoning_effort: None,
+            thinking: Some(OpenCodeThinkingConfig {
+                thinking_type: "enabled".to_string(),
+                budget_tokens: 50000,  // High 50K
+            }),
+        });
+        variants.insert("max".to_string(), OpenCodeVariantConfig {
+            reasoning_effort: None,
+            thinking: Some(OpenCodeThinkingConfig {
+                thinking_type: "enabled".to_string(),
+                budget_tokens: 128000,  // Max 128K
+            }),
+        });
+    } else {
+        // Codex/Gemini 模型: 默认 / Minimal / Low / Medium / High
+        variants.insert("default".to_string(), OpenCodeVariantConfig {
+            reasoning_effort: Some("low".to_string()),
+            thinking: None,
+        });
+        variants.insert("minimal".to_string(), OpenCodeVariantConfig {
+            reasoning_effort: Some("minimal".to_string()),
+            thinking: None,
+        });
+        variants.insert("low".to_string(), OpenCodeVariantConfig {
+            reasoning_effort: Some("low".to_string()),
+            thinking: None,
+        });
+        variants.insert("medium".to_string(), OpenCodeVariantConfig {
+            reasoning_effort: Some("medium".to_string()),
+            thinking: None,
+        });
+        variants.insert("high".to_string(), OpenCodeVariantConfig {
+            reasoning_effort: Some("high".to_string()),
+            thinking: None,
+        });
+    }
+    
+    variants
+}
+
+/// 更新 Model
+#[tauri::command]
+pub fn update_model(
+    provider_name: String,
+    model_id: String,
+    input: ModelInput,
+    config_manager: State<'_, Mutex<ConfigManager>>,
+) -> Result<(), AppError> {
+    let mut manager = config_manager.lock().map_err(|e| AppError::Custom(e.to_string()))?;
+    
+    // 获取 provider 的 model_type
+    let model_type = manager.opencode()
+        .get_provider(&provider_name)?
+        .and_then(|p| p.model_type.clone())
+        .unwrap_or_else(|| "claude".to_string());
+    
+    // 根据 model_type 生成 variants
+    let variants = build_variants(&model_type);
+    
+    let model_info = OpenCodeModelInfo {
+        id: input.id.clone(),
+        name: input.name.unwrap_or_else(|| input.id.clone()),
+        limit: None,
+        reasoning: Some(true),  // 启用 opencode 思考强度切换 (ctrl+t)
+        variants: Some(variants),
+        options: None,
+        reasoning_effort: None,
+        thinking_budget: None,
+        model_detection: None,
+    };
+    
+    manager.opencode_mut().update_model(&provider_name, &model_id, model_info)?;
     
     Ok(())
 }
@@ -221,7 +367,65 @@ pub async fn fetch_site_models(
     }
 }
 
-/// 批量添加 Model
+/// 内部批量添加模型（只读取/写入一次 opencode.json）
+fn add_models_batch_internal(
+    manager: &mut ConfigManager,
+    provider_name: &str,
+    inputs: Vec<ModelInput>,
+) -> Result<(), AppError> {
+    // 读取一次配置
+    let mut config = manager
+        .opencode()
+        .read_config()
+        .map_err(AppError::Custom)?;
+
+    let provider = config
+        .get_provider_mut(provider_name)
+        .ok_or_else(|| AppError::Custom(format!("Provider '{}' 不存在", provider_name)))?;
+
+    // 获取 provider 的 model_type
+    let model_type = provider
+        .model_type
+        .clone()
+        .unwrap_or_else(|| "claude".to_string());
+
+    // 根据 model_type 生成 variants（只生成一次）
+    let variants = build_variants(&model_type);
+
+    for input in inputs {
+        let model_id = input.id.clone();
+        let model_name = input.name.unwrap_or_else(|| model_id.clone());
+
+        // 忽略已存在的模型
+        if provider.get_model(&model_id).is_some() {
+            continue;
+        }
+
+        let model_info = OpenCodeModelInfo {
+            id: model_id.clone(),
+            name: model_name,
+            limit: None,
+            reasoning: Some(true), // 启用 opencode 思考强度切换 (ctrl+t)
+            variants: Some(variants.clone()),
+            options: None,
+            reasoning_effort: None,
+            thinking_budget: None,
+            model_detection: None,
+        };
+
+        provider.add_model(model_id, model_info);
+    }
+
+    // 写回一次配置
+    manager
+        .opencode()
+        .write_config(&config)
+        .map_err(AppError::Custom)?;
+
+    Ok(())
+}
+
+/// 批量添加 Model（仅传 ID，显示名默认等于 ID）
 #[tauri::command]
 pub fn add_models_batch(
     provider_name: String,
@@ -229,19 +433,27 @@ pub fn add_models_batch(
     config_manager: State<'_, Mutex<ConfigManager>>,
 ) -> Result<(), AppError> {
     let mut manager = config_manager.lock().map_err(|e| AppError::Custom(e.to_string()))?;
-    
-    for model_id in model_ids {
-        let model_info = OpenCodeModelInfo {
-            id: model_id.clone(),
-            name: model_id.clone(),
-            limit: None,
+
+    let inputs = model_ids
+        .into_iter()
+        .map(|id| ModelInput {
+            id,
+            name: None,
             reasoning_effort: None,
-            model_detection: None,
-        };
-        
-        // 忽略已存在的模型
-        let _ = manager.opencode_mut().add_model(&provider_name, model_id, model_info);
-    }
-    
-    Ok(())
+            thinking_budget: None,
+        })
+        .collect();
+
+    add_models_batch_internal(&mut manager, &provider_name, inputs)
+}
+
+/// 批量添加 Model（支持传入显示名，供 UI 预设一键添加使用）
+#[tauri::command]
+pub fn add_models_batch_detailed(
+    provider_name: String,
+    inputs: Vec<ModelInput>,
+    config_manager: State<'_, Mutex<ConfigManager>>,
+) -> Result<(), AppError> {
+    let mut manager = config_manager.lock().map_err(|e| AppError::Custom(e.to_string()))?;
+    add_models_batch_internal(&mut manager, &provider_name, inputs)
 }

@@ -100,7 +100,11 @@ export default {
     },
     adding: 'Adding...',
     reasoningEffort: 'Reasoning Effort',
-    reasoningEffortHint: 'Only for GPT5.2/GPT5.1 reasoning models, select "None" for regular models'
+    reasoningEffortHint: 'Only for GPT5.2/GPT5.1 reasoning models, select "None" for regular models',
+    thinkingBudget: 'Thinking Budget',
+    thinkingBudgetHint: 'Controls the thinking tokens for Claude models, higher values allow deeper reasoning',
+    editModel: 'Edit Model',
+    edit: 'Edit'
   },
 
   // Detail panel

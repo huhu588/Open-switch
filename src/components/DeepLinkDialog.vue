@@ -111,7 +111,7 @@ async function confirmAdd() {
     if (provider.models && provider.models.length > 0) {
       for (const model of provider.models) {
         await invoke('add_model', {
-          provider_name: provider.name,
+          providerName: provider.name,
           input: {
             id: model.id,
             name: model.name || model.id, // 使用深链接中指定的显示名称

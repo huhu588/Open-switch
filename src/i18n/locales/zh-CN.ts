@@ -100,7 +100,11 @@ export default {
     },
     adding: '添加中...',
     reasoningEffort: '推理强度',
-    reasoningEffortHint: '仅适用于 GPT5.2/GPT5.1 等推理模型，普通模型请选择“无”'
+    reasoningEffortHint: '仅适用于 GPT5.2/GPT5.1 等推理模型，普通模型请选择"无"',
+    thinkingBudget: '思考预算',
+    thinkingBudgetHint: '控制 Claude 模型的深度思考 token 数量，更高的值允许更深入的推理',
+    editModel: '编辑模型',
+    edit: '编辑'
   },
 
   // 详情面板

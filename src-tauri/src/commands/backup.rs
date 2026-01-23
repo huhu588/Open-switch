@@ -10,6 +10,7 @@ use tauri::State;
 
 use crate::config::{ConfigManager, McpServer, McpServerType};
 use crate::error::AppError;
+use super::model::build_variants;
 
 /// Backup file format version
 const BACKUP_VERSION: &str = "1.0.0";
@@ -378,6 +379,10 @@ pub fn import_backup(
                 let _ = manager.opencode_mut().delete_provider(&provider.name);
             }
             
+            // 根据 model_type 生成 variants
+            let model_type = provider.model_type.clone().unwrap_or_else(|| "claude".to_string());
+            let variants = build_variants(&model_type);
+            
             match manager.opencode_mut().add_provider(
                 provider.name.clone(),
                 provider.base_url.clone(),
@@ -393,7 +398,11 @@ pub fn import_backup(
                             id: model.id.clone(),
                             name: model.name.clone(),
                             limit: None,
+                            reasoning: Some(true),  // 启用 opencode 思考强度切换 (ctrl+t)
+                            variants: Some(variants.clone()),
+                            options: None,
                             reasoning_effort: model.reasoning_effort.clone(),
+                            thinking_budget: None,
                             model_detection: None,
                         };
                         let _ = manager.opencode_mut().add_model(&provider.name, model.id.clone(), model_info);

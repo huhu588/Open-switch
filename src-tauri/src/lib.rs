@@ -115,10 +115,13 @@ pub fn run() {
             commands::apply_config,
             // Model commands
             commands::get_models,
+            commands::get_model,
             commands::add_model,
+            commands::update_model,
             commands::delete_model,
             commands::fetch_site_models,
             commands::add_models_batch,
+            commands::add_models_batch_detailed,
             // MCP commands
             commands::get_mcp_servers,
             commands::get_mcp_server,

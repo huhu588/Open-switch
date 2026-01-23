@@ -250,40 +250,41 @@ async function save() {
         }
       })
       
-      // 自动添加选中的预设模型
+      // 自动添加预设模型 + 自定义模型（一次性批量添加，避免多次读写配置导致失败）
+      const batchInputs: Array<{ id: string; name?: string | null }> = []
+
       if (autoAddModels.value && selectedModels.value.length > 0) {
         for (const modelId of selectedModels.value) {
           const modelDef = presetModels.value.find(m => m.id === modelId)
           if (modelDef) {
-            try {
-              await invoke('add_model', {
-                provider_name: form.value.name,
-                input: {
-                  id: modelDef.id,
-                  name: modelDef.name,
-                }
-              })
-            } catch (e) {
-              console.warn(`添加模型 ${modelId} 失败:`, e)
-            }
+            batchInputs.push({
+              id: modelDef.id,
+              name: modelDef.name,
+            })
           }
         }
       }
-      
-      // 添加自定义模型
+
       if (customModels.value.length > 0) {
         for (const modelName of customModels.value) {
-          try {
-            await invoke('add_model', {
-              provider_name: form.value.name,
-              input: {
-                id: modelName,
-                name: modelName,
-              }
-            })
-          } catch (e) {
-            console.warn(`添加自定义模型 ${modelName} 失败:`, e)
-          }
+          batchInputs.push({
+            id: modelName,
+            name: modelName,
+          })
+        }
+      }
+
+      if (batchInputs.length > 0) {
+        try {
+          await invoke('add_models_batch_detailed', {
+            providerName: form.value.name,
+            inputs: batchInputs,
+          })
+        } catch (e) {
+          // 这里失败会导致“看起来没加上模型”，因此需要给出明确提示
+          console.warn('批量添加模型失败:', e)
+          error.value = `批量添加模型失败: ${String(e)}`
+          return
         }
       }
     }

@@ -322,7 +322,7 @@ async function addSelectedRecommended() {
   addingRecommended.value = true
   try {
     const result = await invoke<AddRecommendedResult>('add_recommended_mcp_servers', {
-      serverNames: Array.from(selectedRecommended.value)
+      server_names: Array.from(selectedRecommended.value)
     })
     
     // 显示结果消息

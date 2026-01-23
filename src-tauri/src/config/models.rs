@@ -178,18 +178,66 @@ pub struct ProviderMetadata {
 /// 模型信息 (匹配新版 opencode 格式)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OpenCodeModelInfo {
+    // id 作为 HashMap 的 key，序列化时跳过以避免冗余
+    // 注意：反序列化时 opencode.json 通常不会包含 id 字段，因此这里需要 default，避免解析失败
+    #[serde(skip_serializing, default)]
     pub id: String,
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub limit: Option<OpenCodeModelLimit>,
-    /// 推理强度 (仅用于 OpenAI GPT5.2/GPT5.1 等推理模型)
-    /// 可选值: "low", "medium", "high"
+    /// 是否支持推理/思考 (opencode 用于显示 ctrl+t 切换)
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<bool>,
+    /// 模型变体配置 (opencode ctrl+t 切换的预设选项)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub variants: Option<HashMap<String, OpenCodeVariantConfig>>,
+    /// 模型选项配置 (opencode 格式)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub options: Option<OpenCodeModelOptions>,
+    /// 推理强度 - 内部字段，不直接序列化，而是通过 options 输出
+    #[serde(skip)]
     pub reasoning_effort: Option<String>,
+    /// 思考预算 (Anthropic/Claude 模型) - 内部字段
+    #[serde(skip)]
+    pub thinking_budget: Option<u32>,
     // 模型检测结果 (持久化缓存，不同步到 opencode.json)
     #[serde(skip)]
     #[allow(dead_code)]
     pub model_detection: Option<ModelDetectionResult>,
+}
+
+/// 模型变体配置 (opencode ctrl+t 切换的预设选项)
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct OpenCodeVariantConfig {
+    /// 推理强度 (Codex/Gemini 模型)
+    #[serde(rename = "reasoningEffort", skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<String>,
+    /// 思考配置 (Claude 模型)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thinking: Option<OpenCodeThinkingConfig>,
+}
+
+/// 模型选项配置 (opencode 格式)
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct OpenCodeModelOptions {
+    /// 推理强度 (OpenAI/Codex 模型)
+    /// 可选值: "none", "minimal", "low", "medium", "high", "xhigh"
+    #[serde(rename = "reasoningEffort", skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<String>,
+    /// 思考配置 (Anthropic/Claude 模型)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thinking: Option<OpenCodeThinkingConfig>,
+}
+
+/// Anthropic 思考配置
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpenCodeThinkingConfig {
+    /// 思考类型: "enabled"
+    #[serde(rename = "type")]
+    pub thinking_type: String,
+    /// 思考 token 预算
+    #[serde(rename = "budgetTokens")]
+    pub budget_tokens: u32,
 }
 
 /// 模型限制配置

@@ -49,6 +49,7 @@ const showDeleteDialog = ref(false)
 const showApplyDialog = ref(false)
 const showFetchModelsDialog = ref(false)
 const editingProvider = ref<string | null>(null)
+const editingModel = ref<{ id: string; name: string } | null>(null)
 const deleteTarget = ref<{ type: 'provider' | 'model'; name: string } | null>(null)
 
 // 加载数据
@@ -76,6 +77,13 @@ function openDeleteProvider(name: string) {
 
 // 添加 Model
 function openAddModel() {
+  editingModel.value = null
+  showModelDialog.value = true
+}
+
+// 编辑 Model
+function openEditModel(model: { id: string; name: string }) {
+  editingModel.value = model
   showModelDialog.value = true
 }
 
@@ -158,6 +166,7 @@ async function handleToggleProvider(name: string, enabled: boolean) {
           :disabled="!store.selectedProvider"
           @select="id => store.selectedModel = id"
           @add="openAddModel"
+          @edit="openEditModel"
           @delete="openDeleteModel"
           @fetch="openFetchModels"
         />
@@ -176,6 +185,7 @@ async function handleToggleProvider(name: string, enabled: boolean) {
     <ModelDialog
       v-model:visible="showModelDialog"
       :provider-name="store.selectedProvider"
+      :editing="editingModel"
       @saved="store.loadModels()"
     />
 

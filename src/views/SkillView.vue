@@ -234,7 +234,7 @@ async function installSelected() {
 async function viewSkillContent(skill: InstalledSkill) {
   selectedSkill.value = skill
   try {
-    skillContent.value = await invoke<string>('read_skills_content', { skillsPath: skill.path })
+    skillContent.value = await invoke<string>('read_skills_content', { skills_path: skill.path })
     showContentModal.value = true
   } catch (e) {
     console.error('读取 Skill 内容失败:', e)
@@ -253,7 +253,7 @@ async function deleteskills() {
   if (!skillToDelete.value) return
   
   try {
-    await invoke('delete_skills', { skillsPath: skillToDelete.value.path })
+    await invoke('delete_skills', { skills_path: skillToDelete.value.path })
     showDeleteConfirm.value = false
     await loadInstalledSkills()
     showMessage('删除成功', 'success')
