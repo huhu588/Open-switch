@@ -235,9 +235,50 @@ pub struct OpenCodeThinkingConfig {
     /// 思考类型: "enabled"
     #[serde(rename = "type")]
     pub thinking_type: String,
-    /// 思考 token 预算
-    #[serde(rename = "budgetTokens")]
+    /// 思考 token 预算 (支持浮点数和整数)
+    #[serde(rename = "budgetTokens", deserialize_with = "deserialize_budget_tokens")]
     pub budget_tokens: u32,
+}
+
+/// 自定义反序列化：支持浮点数和整数
+fn deserialize_budget_tokens<'de, D>(deserializer: D) -> Result<u32, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::{self, Visitor};
+    
+    struct BudgetTokensVisitor;
+    
+    impl<'de> Visitor<'de> for BudgetTokensVisitor {
+        type Value = u32;
+        
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("an integer or floating point number")
+        }
+        
+        fn visit_i64<E>(self, value: i64) -> Result<u32, E>
+        where
+            E: de::Error,
+        {
+            u32::try_from(value).map_err(|_| E::custom(format!("value {} is out of range for u32", value)))
+        }
+        
+        fn visit_u64<E>(self, value: u64) -> Result<u32, E>
+        where
+            E: de::Error,
+        {
+            u32::try_from(value).map_err(|_| E::custom(format!("value {} is out of range for u32", value)))
+        }
+        
+        fn visit_f64<E>(self, value: f64) -> Result<u32, E>
+        where
+            E: de::Error,
+        {
+            Ok(value as u32)
+        }
+    }
+    
+    deserializer.deserialize_any(BudgetTokensVisitor)
 }
 
 /// 模型限制配置

@@ -467,6 +467,22 @@ export default {
     }
   },
 
+  // 已部署服务商管理
+  deployed: {
+    title: '已部署的服务商',
+    sectionTitle: '已部署服务商',
+    manageTitle: '管理已部署的服务商',
+    manageDesc: '查看并管理已应用到 opencode 配置文件中的服务商',
+    manage: '管理',
+    description: '以下服务商已部署到 opencode 配置文件中，可以在此处删除不再需要的服务商。',
+    noProviders: '暂无已部署的服务商',
+    global: '全局',
+    project: '项目',
+    models: '个模型',
+    removeAll: '删除全部',
+    syncAll: '一键同步'
+  },
+
   // 深链接配置
   deepLink: {
     title: '添加服务商',

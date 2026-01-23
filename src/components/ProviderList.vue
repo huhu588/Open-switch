@@ -19,6 +19,7 @@ const emit = defineEmits<{
   delete: [name: string]
   apply: []
   toggle: [name: string, enabled: boolean]
+  viewDeployed: []
 }>()
 </script>
 
@@ -49,6 +50,13 @@ const emit = defineEmits<{
       >
         <SvgIcon name="check" :size="12" class="group-hover:text-accent transition-colors" />
         <span>{{ t('provider.apply') }}</span>
+      </button>
+      <button
+        @click="emit('viewDeployed')"
+        class="flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs font-medium rounded-md border border-border bg-surface hover:bg-surface-hover hover:border-accent/40 transition-all active:scale-95 group"
+        :title="t('deployed.manageTitle')"
+      >
+        <SvgIcon name="refresh" :size="12" class="group-hover:text-accent transition-colors" />
       </button>
     </div>
 

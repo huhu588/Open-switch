@@ -19,6 +19,15 @@ export interface ModelItem {
   thinking_budget?: number | null
 }
 
+// 已部署的服务商信息
+export interface DeployedProviderItem {
+  name: string
+  base_url: string
+  model_count: number
+  source: string // "global" 或 "project"
+  inferred_model_type?: string // 推断的模型类型
+}
+
 export const useProvidersStore = defineStore('providers', () => {
   // 状态
   const providers = ref<ProviderItem[]>([])
@@ -175,6 +184,32 @@ export const useProvidersStore = defineStore('providers', () => {
     await loadProviders()
   }
 
+  // 获取已部署到 opencode 的 Provider 列表
+  async function loadDeployedProviders(): Promise<DeployedProviderItem[]> {
+    return await invoke<DeployedProviderItem[]>('get_deployed_providers')
+  }
+
+  // 从已部署的 opencode 配置中删除 Provider
+  async function removeDeployedProvider(name: string, fromGlobal: boolean, fromProject: boolean) {
+    await invoke('remove_deployed_provider', {
+      input: {
+        name,
+        from_global: fromGlobal,
+        from_project: fromProject
+      }
+    })
+  }
+
+  // 导入已部署的 Provider 到管理界面
+  async function importDeployedProvider(name: string, modelType: string) {
+    await invoke('import_deployed_provider', {
+      input: {
+        name,
+        model_type: modelType
+      }
+    })
+  }
+
   return {
     // 状态
     providers,
@@ -198,5 +233,8 @@ export const useProvidersStore = defineStore('providers', () => {
     addModelsBatch,
     applyConfig,
     toggleProvider,
+    loadDeployedProviders,
+    removeDeployedProvider,
+    importDeployedProvider,
   }
 })

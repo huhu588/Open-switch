@@ -467,6 +467,22 @@ export default {
     }
   },
 
+  // Deployed Providers Management
+  deployed: {
+    title: 'Deployed Providers',
+    sectionTitle: 'Deployed Providers',
+    manageTitle: 'Manage Deployed Providers',
+    manageDesc: 'View and manage providers deployed to opencode configuration files',
+    manage: 'Manage',
+    description: 'The following providers are deployed to opencode configuration files. You can remove providers you no longer need.',
+    noProviders: 'No deployed providers',
+    global: 'Global',
+    project: 'Project',
+    models: 'models',
+    removeAll: 'Remove All',
+    syncAll: 'Sync All'
+  },
+
   // Deep Link Configuration
   deepLink: {
     title: 'Add Provider',

@@ -113,6 +113,9 @@ pub fn run() {
             commands::toggle_provider,
             commands::check_provider_applied,
             commands::apply_config,
+            commands::get_deployed_providers,
+            commands::remove_deployed_provider,
+            commands::import_deployed_provider,
             // Model commands
             commands::get_models,
             commands::get_model,

@@ -12,6 +12,7 @@ import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import ApplyDialog from '@/components/ApplyDialog.vue'
 import FetchModelsDialog from '@/components/FetchModelsDialog.vue'
 import ModelTypeSelector from '@/components/ModelTypeSelector.vue'
+import DeployedProvidersDialog from '@/components/DeployedProvidersDialog.vue'
 import { type ModelType } from '@/config/modelTypes'
 
 const store = useProvidersStore()
@@ -48,6 +49,7 @@ const showModelDialog = ref(false)
 const showDeleteDialog = ref(false)
 const showApplyDialog = ref(false)
 const showFetchModelsDialog = ref(false)
+const showDeployedDialog = ref(false)
 const editingProvider = ref<string | null>(null)
 const editingModel = ref<{ id: string; name: string } | null>(null)
 const deleteTarget = ref<{ type: 'provider' | 'model'; name: string } | null>(null)
@@ -155,6 +157,7 @@ async function handleToggleProvider(name: string, enabled: boolean) {
           @delete="openDeleteProvider"
           @apply="openApplyDialog"
           @toggle="handleToggleProvider"
+          @view-deployed="showDeployedDialog = true"
         />
       </div>
 
@@ -214,6 +217,12 @@ async function handleToggleProvider(name: string, enabled: boolean) {
       v-model:visible="showFetchModelsDialog"
       :provider-name="store.selectedProvider"
       @added="store.loadModels()"
+    />
+
+    <!-- 已部署服务商管理对话框 -->
+    <DeployedProvidersDialog 
+      v-model:visible="showDeployedDialog" 
+      @imported="store.loadProviders()" 
     />
   </div>
 </template>

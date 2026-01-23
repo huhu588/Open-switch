@@ -109,6 +109,19 @@ function toggleAllModels() {
   }
 }
 
+// 切换模型提供商时的处理
+function onModelTypeChange(typeId: ModelType) {
+  form.value.model_type = typeId
+  
+  // 根据模型提供商自动设置协议
+  const protocolMap: Record<ModelType, ApiProtocol> = {
+    'claude': 'anthropic',
+    'openai': 'openai',
+    'gemini': 'openai',  // Gemini 使用 OpenAI 兼容协议
+  }
+  form.value.protocol = protocolMap[typeId] || 'anthropic'
+}
+
 // 监听模型厂家变化，更新选中的模型（智谱 AI 不受模型厂家影响）
 watch(() => form.value.model_type, () => {
   // 智谱 AI 使用预设自带的模型，不需要更新
@@ -144,13 +157,26 @@ watch(() => props.visible, async (visible) => {
     try {
       const provider = await invoke<any>('get_provider', { name: props.editing })
       if (provider) {
-        // 根据 npm 包推断协议
+        // 根据 npm 包推断协议和模型提供商
         const npm = provider.npm || ''
         let inferredProtocol: ApiProtocol = 'anthropic'
+        let inferredModelType: ModelType = 'claude'
+        
         if (npm.includes('openai-compatible')) {
           inferredProtocol = 'openai-compatible'
+          inferredModelType = 'openai'
         } else if (npm.includes('openai')) {
           inferredProtocol = 'openai'
+          inferredModelType = 'openai'
+        } else if (npm.includes('anthropic')) {
+          inferredProtocol = 'anthropic'
+          // 根据 provider 名称推断是 Claude 还是 Gemini
+          const providerName = props.editing.toLowerCase()
+          if (providerName.includes('gemini')) {
+            inferredModelType = 'gemini'
+          } else {
+            inferredModelType = 'claude'
+          }
         }
         
         form.value = {
@@ -159,7 +185,7 @@ watch(() => props.visible, async (visible) => {
           base_url: provider.options.base_url || '',
           description: provider.description || '',
           protocol: inferredProtocol as ApiProtocol,
-          model_type: provider.model_type || 'claude',
+          model_type: inferredModelType,
         }
         selectedPreset.value = '自定义'
         autoAddModels.value = false
@@ -365,15 +391,15 @@ async function save() {
               </div>
             </div>
 
-            <!-- 模型厂家选择 (仅新增时显示) -->
-            <div v-if="!editing">
-              <label class="block text-sm font-medium mb-2">模型厂家</label>
-              <div class="flex gap-2">
+            <!-- 模型厂家选择 -->
+            <div>
+              <label class="block text-sm font-medium mb-2">模型提供商</label>
+              <div class="flex flex-wrap gap-2">
                 <button
                   v-for="type in MODEL_TYPES"
                   :key="type.id"
                   type="button"
-                  @click="form.model_type = type.id"
+                  @click="onModelTypeChange(type.id)"
                   :class="[
                     'flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-full border-2 transition-all font-medium',
                     form.model_type === type.id
@@ -385,6 +411,9 @@ async function save() {
                   <span>{{ type.name }}</span>
                 </button>
               </div>
+              <p v-if="editing" class="mt-1.5 text-xs text-muted-foreground">
+                💡 切换模型提供商会自动更新协议配置
+              </p>
             </div>
 
             <!-- 名称 -->
