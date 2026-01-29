@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, shallowRef } from 'vue';
 import { check, type Update } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
 
@@ -8,7 +8,8 @@ const isOpen = ref(false);
 const isChecking = ref(false);
 const isDownloading = ref(false);
 const downloadProgress = ref(0);
-const updateInfo = ref<Update | null>(null);
+// 使用 shallowRef 避免 Vue 深度代理 Update 对象，保留其私有成员
+const updateInfo = shallowRef<Update | null>(null);
 const error = ref<string>('');
 
 // 检查更新
@@ -35,7 +36,8 @@ async function checkForUpdate() {
 
 // 下载并安装更新
 async function downloadAndInstall() {
-  if (!updateInfo.value) return;
+  const update = updateInfo.value;
+  if (!update) return;
   
   isDownloading.value = true;
   downloadProgress.value = 0;
@@ -44,7 +46,8 @@ async function downloadAndInstall() {
     let downloaded = 0;
     let contentLength = 0;
     
-    await updateInfo.value.downloadAndInstall((event) => {
+    // 直接使用局部变量调用，避免响应式代理问题
+    await update.downloadAndInstall((event) => {
       switch (event.event) {
         case 'Started':
           contentLength = event.data.contentLength || 0;
