@@ -405,15 +405,18 @@ onUnmounted(() => {
       <div class="flex-1 overflow-auto p-6">
         <router-view v-slot="{ Component }">
           <transition 
-            enter-active-class="transition-all duration-300 ease-out"
-            enter-from-class="opacity-0 translate-y-2 scale-[0.99]"
-            enter-to-class="opacity-100 translate-y-0 scale-100"
-            leave-active-class="transition-all duration-200 ease-in"
-            leave-from-class="opacity-100 translate-y-0 scale-100"
-            leave-to-class="opacity-0 -translate-y-2 scale-[0.99]"
+            enter-active-class="transition-opacity duration-150 ease-out"
+            enter-from-class="opacity-0"
+            enter-to-class="opacity-100"
+            leave-active-class="transition-opacity duration-100 ease-in"
+            leave-from-class="opacity-100"
+            leave-to-class="opacity-0"
             mode="out-in"
           >
-            <component :is="Component" />
+            <!-- 使用 KeepAlive 缓存所有页面组件，避免重复创建和数据加载 -->
+            <KeepAlive :max="10">
+              <component :is="Component" :key="route.path" />
+            </KeepAlive>
           </transition>
         </router-view>
       </div>
