@@ -55,15 +55,40 @@ async function generateIcons() {
     console.log('已生成: icon.png')
 
     console.log('\n正在生成平台图标 (.icns/.ico)...')
-    const npxCmd = process.platform === 'win32' ? 'npx.cmd' : 'npx'
-    const result = spawnSync(
-        npxCmd,
-        ['@tauri-apps/cli', 'icon', path.join(iconsDir, 'icon.png')],
-        { stdio: 'inherit' }
-    )
+    const projectRoot = path.join(__dirname, '..')
+    const iconSource = 'src-tauri/icons/icon.png'
+    
+    let result
+    if (process.platform === 'win32') {
+        // Windows: 使用 shell 执行完整命令字符串
+        result = spawnSync(
+            'npx @tauri-apps/cli icon ' + iconSource,
+            [],
+            { 
+                stdio: 'inherit',
+                cwd: projectRoot,
+                shell: true
+            }
+        )
+    } else {
+        // macOS/Linux: 直接执行
+        result = spawnSync(
+            'npx',
+            ['@tauri-apps/cli', 'icon', iconSource],
+            { 
+                stdio: 'inherit',
+                cwd: projectRoot
+            }
+        )
+    }
 
     if (result.status !== 0) {
         console.error('tauri icon 执行失败，请检查 @tauri-apps/cli 是否可用。')
+        // 在 Windows 上，如果 .ico 已存在则跳过
+        if (process.platform === 'win32' && fs.existsSync(path.join(iconsDir, 'icon.ico'))) {
+            console.log('Windows 平台：icon.ico 已存在，继续构建。')
+            return
+        }
         process.exit(result.status ?? 1)
     }
 
