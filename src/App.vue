@@ -296,16 +296,27 @@ onUnmounted(() => {
       <!-- Logo Area -->
       <div class="flex h-16 items-center px-6 border-b border-border/50">
         <div class="flex items-center gap-3 group cursor-default">
-          <!-- Logo：实心背景开关设计 -->
+          <!-- Logo：粉色背景无限符号设计 -->
           <div 
-            class="flex h-8 w-8 items-center justify-center rounded-md shadow-sm transition-all duration-300 group-hover:scale-105"
-            :class="isDark ? 'bg-[#F5F5F5] text-zinc-900' : 'bg-accent text-white'"
+            class="flex h-8 w-8 items-center justify-center rounded-lg shadow-sm transition-all duration-300 group-hover:scale-105 overflow-hidden"
           >
-            <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2">
-              <!-- 开关外框 -->
-              <rect x="6" y="3" width="12" height="18" rx="2.5" />
-              <!-- 开关滑块（实心） -->
-              <rect x="8.5" y="6" width="7" height="6" rx="1" fill="currentColor" stroke="none" />
+            <svg viewBox="0 0 1024 1024" class="h-full w-full">
+              <defs>
+                <linearGradient id="logo_bg" x1="0" y1="0" x2="1024" y2="1024" gradientUnits="userSpaceOnUse">
+                  <stop offset="0%" stop-color="#F472B6"/>
+                  <stop offset="100%" stop-color="#BE185D"/>
+                </linearGradient>
+                <linearGradient id="logo_symbol" x1="100" y1="512" x2="924" y2="512" gradientUnits="userSpaceOnUse">
+                  <stop offset="0%" stop-color="#34D399"/>
+                  <stop offset="40%" stop-color="#22D3EE"/>
+                  <stop offset="100%" stop-color="#D8B4FE"/>
+                </linearGradient>
+              </defs>
+              <rect x="64" y="64" width="896" height="896" rx="220" fill="url(#logo_bg)"/>
+              <g transform="translate(512, 512) scale(0.8)">
+                <path d="M 220 160 C 100 160 0 0 -220 -160 C -340 -160 -420 -80 -420 0 C -420 80 -340 160 -220 160 C -100 160 0 0 220 -160 C 340 -160 420 -80 420 0 C 420 80 340 160 220 160 Z" 
+                      fill="none" stroke="url(#logo_symbol)" stroke-width="80" stroke-linecap="round" stroke-linejoin="round"/>
+              </g>
             </svg>
           </div>
           <div>
