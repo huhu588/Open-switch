@@ -63,32 +63,35 @@ function handleSpeedTest(providerName: string) {
   }, 5000)
 }
 
-// 获取工具来源标识
-function getToolBadge(provider: ProviderItem) {
-  // 根据描述判断导入来源
+// 获取所有标识（模型类型 + 工具来源）
+function getToolBadges(provider: ProviderItem) {
+  const badges: { label: string; class: string }[] = []
+  
+  // 1. 模型类型标识（始终显示）
+  switch (provider.model_type) {
+    case 'claude':
+      badges.push({ label: 'Claude', class: 'bg-amber-500/10 text-amber-600 border-amber-500/30' })
+      break
+    case 'codex':
+      badges.push({ label: 'Codex', class: 'bg-emerald-500/10 text-emerald-600 border-emerald-500/30' })
+      break
+    case 'gemini':
+      badges.push({ label: 'Gemini', class: 'bg-blue-500/10 text-blue-600 border-blue-500/30' })
+      break
+  }
+  
+  // 2. 工具来源标识（从描述判断）
   const desc = provider.description?.toLowerCase() || ''
   
   if (desc.includes('claude code')) {
-    return { label: 'Claude Code', class: 'bg-orange-500/10 text-orange-500 border-orange-500/30' }
-  }
-  if (desc.includes('codex')) {
-    return { label: 'Codex CLI', class: 'bg-purple-500/10 text-purple-500 border-purple-500/30' }
-  }
-  if (desc.includes('gemini')) {
-    return { label: 'Gemini CLI', class: 'bg-cyan-500/10 text-cyan-500 border-cyan-500/30' }
+    badges.push({ label: 'Claude Code', class: 'bg-orange-500/10 text-orange-500 border-orange-500/30' })
+  } else if (desc.includes('codex')) {
+    badges.push({ label: 'Codex CLI', class: 'bg-purple-500/10 text-purple-500 border-purple-500/30' })
+  } else if (desc.includes('gemini')) {
+    badges.push({ label: 'Gemini CLI', class: 'bg-cyan-500/10 text-cyan-500 border-cyan-500/30' })
   }
   
-  // 根据 model_type 显示模型类型
-  switch (provider.model_type) {
-    case 'claude':
-      return { label: 'Claude', class: 'bg-amber-500/10 text-amber-600 border-amber-500/30' }
-    case 'codex':
-      return { label: 'Codex', class: 'bg-emerald-500/10 text-emerald-600 border-emerald-500/30' }
-    case 'gemini':
-      return { label: 'Gemini', class: 'bg-blue-500/10 text-blue-600 border-blue-500/30' }
-    default:
-      return null
-  }
+  return badges
 }
 
 // 暴露方法给父组件
@@ -170,13 +173,14 @@ defineExpose({
               >
                 {{ provider.name }}
               </span>
-              <!-- 工具来源标识 -->
+              <!-- 工具来源标识（可能多个） -->
               <span 
-                v-if="getToolBadge(provider)" 
+                v-for="badge in getToolBadges(provider)"
+                :key="badge.label"
                 class="text-[10px] font-medium px-1.5 py-0.5 rounded border"
-                :class="getToolBadge(provider)?.class"
+                :class="badge.class"
               >
-                {{ getToolBadge(provider)?.label }}
+                {{ badge.label }}
               </span>
               <span v-if="!provider.enabled" class="text-[10px] text-muted-foreground bg-surface px-1 rounded">
                 已禁用
