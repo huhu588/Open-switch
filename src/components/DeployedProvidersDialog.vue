@@ -60,6 +60,11 @@ function toggleSelectAll() {
   }
 }
 
+// 一键全选（底部按钮）
+function selectAllProviders() {
+  selectedProviders.value = new Set(deployedProviders.value.map(p => p.name))
+}
+
 // 加载已部署的服务商（从所有工具）
 async function loadData() {
   loading.value = true
@@ -200,18 +205,6 @@ async function removeAll() {
     error.value = String(e)
   } finally {
     deleting.value = null
-  }
-}
-
-// 开始导入流程：如果可以推断则直接导入，否则选择模型类型
-function startImport(provider: DeployedProviderItem) {
-  importingProvider.value = provider
-  // 如果能够推断出 model_type，直接导入
-  if (provider.inferred_model_type) {
-    importProvider(provider.inferred_model_type)
-  } else {
-    // 否则显示手动选择对话框
-    showModelTypeDialog.value = true
   }
 }
 
@@ -542,11 +535,11 @@ async function syncAll() {
             </button>
             <button
               v-if="deployedProviders.length > 0"
-              @click="syncAll"
-              :disabled="syncingAll || deleting !== null || importing !== null"
+              @click="selectAllProviders"
+              :disabled="syncingAll || deleting !== null"
               class="px-4 py-2 text-sm font-medium rounded-lg text-accent border border-accent/30 hover:bg-accent/10 disabled:opacity-50 transition-colors"
             >
-              {{ syncingAll ? t('common.loading') : t('deployed.syncAll') }}
+              {{ t('deployed.syncAll') }}
             </button>
             <div class="flex-1"></div>
             <button

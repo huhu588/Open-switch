@@ -561,7 +561,7 @@ async function save() {
                     customModels.value.length > 0 ||
                     existingModels.value.length > 0
   
-  if (applyTargets.value.includes('opencode') && !hasModels && !props.editing) {
+  if (applyTargets.value.includes('opencode') && !hasModels) {
     error.value = 'OpenCode 需要至少一个模型，请添加模型或取消勾选 OpenCode'
     return
   }
