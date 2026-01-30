@@ -159,10 +159,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         .manage(db_arc)
         .manage(proxy_service_state)
         .setup(|app| {
-            // 创建托盘菜单（开发和生产模式都需要托盘图标以支持最小化到托盘功能）
-            let show_item = MenuItem::with_id(app, "show", "显示窗口", true, None::<&str>)?;
-            let quit_item = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
+            // 创建动态托盘菜单（包含 Provider 列表）
+            let menu = build_tray_menu(app.handle())?;
             
             // 创建托盘图标（安全处理图标不存在的情况）
             let icon = app.default_window_icon()
@@ -174,7 +172,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| {
-                    match event.id.as_ref() {
+                    let id = event.id.as_ref();
+                    match id {
                         "show" => {
                             if let Some(window) = app.get_webview_window("main") {
                                 let _ = window.show();
@@ -184,7 +183,15 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                         "quit" => {
                             app.exit(0);
                         }
-                        _ => {}
+                        _ => {
+                            // 处理 Provider 点击事件
+                            if id.starts_with("provider_") {
+                                let provider_name = id.strip_prefix("provider_").unwrap_or("");
+                                if !provider_name.is_empty() {
+                                    handle_provider_click(app, provider_name);
+                                }
+                            }
+                        }
                     }
                 })
                 .on_tray_icon_event(|tray, event| {
@@ -205,7 +212,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                 .build(app)?;
             
             // 将托盘图标存储到应用状态中，防止被释放
-            app.manage(TrayState(tray));
+            app.manage(TrayState(Mutex::new(tray)));
             
             // 深链接处理说明：
             // 初始深链接和后续深链接都由前端通过 @tauri-apps/plugin-deep-link 直接处理
