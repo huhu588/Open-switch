@@ -491,7 +491,7 @@ pub async fn get_cc_switch_providers() -> Result<Vec<CcSwitchProviderItem>, Stri
         }
     }
     
-    // 2.2 尝试读取 JSON 配置文件（旧版本 cc-switch）
+    // 2.2 尝试读取 JSON 配置文件 (cc-switch config.json)
     if !config_path.exists() {
         // cc-switch 未安装或未配置
         return Ok(providers);
@@ -503,8 +503,11 @@ pub async fn get_cc_switch_providers() -> Result<Vec<CcSwitchProviderItem>, Stri
     let json: serde_json::Value = serde_json::from_str(&content)
         .map_err(|e| format!("解析 cc-switch 配置失败: {}", e))?;
     
-    // 读取 claudeProviders（Claude Code 的供应商）
-    if let Some(claude_providers) = json.get("claudeProviders").and_then(|v| v.get("providers")) {
+    // cc-switch config.json 格式 (v2):
+    // { "claude": { "providers": { ... } }, "codex": { "providers": { ... } }, "gemini": { "providers": { ... } } }
+    
+    // 读取 claude.providers（Claude Code 的供应商）
+    if let Some(claude_providers) = json.get("claude").and_then(|v| v.get("providers")) {
         if let Some(obj) = claude_providers.as_object() {
             for (_id, provider) in obj {
                 let name = provider.get("name")
@@ -521,6 +524,18 @@ pub async fn get_cc_switch_providers() -> Result<Vec<CcSwitchProviderItem>, Stri
                     .unwrap_or("https://api.anthropic.com")
                     .to_string();
                 
+                // 从 settingsConfig.env 提取 api_key
+                let api_key = provider
+                    .get("settingsConfig")
+                    .and_then(|sc| sc.get("env"))
+                    .and_then(|env| {
+                        // 尝试多个可能的 key 名称
+                        env.get("ANTHROPIC_AUTH_TOKEN")
+                            .or_else(|| env.get("ANTHROPIC_API_KEY"))
+                    })
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                
                 // 从 settingsConfig.env 提取 model
                 let model = provider
                     .get("settingsConfig")
@@ -530,9 +545,9 @@ pub async fn get_cc_switch_providers() -> Result<Vec<CcSwitchProviderItem>, Stri
                     .map(|s| s.to_string());
                 
                 providers.push(CcSwitchProviderItem {
-                    name,
+                    name: format!("{} (cc-switch)", name),
                     base_url,
-                    model_count: -1,
+                    model_count: if api_key.is_some() { 0 } else { -1 },
                     source: "cc_switch_claude".to_string(),
                     tool: Some("cc_switch".to_string()),
                     inferred_model_type: Some("claude".to_string()),
@@ -542,7 +557,84 @@ pub async fn get_cc_switch_providers() -> Result<Vec<CcSwitchProviderItem>, Stri
         }
     }
     
-    // 读取 universalProviders（跨应用通用供应商）
+    // 读取 codex.providers（Codex CLI 的供应商）
+    if let Some(codex_providers) = json.get("codex").and_then(|v| v.get("providers")) {
+        if let Some(obj) = codex_providers.as_object() {
+            for (_id, provider) in obj {
+                let name = provider.get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Unknown")
+                    .to_string();
+                
+                // Codex 的 base_url 在 settingsConfig.config 中的 TOML 字符串里
+                let base_url = provider
+                    .get("settingsConfig")
+                    .and_then(|sc| sc.get("config"))
+                    .and_then(|v| v.as_str())
+                    .and_then(|toml| {
+                        for line in toml.lines() {
+                            let line = line.trim();
+                            if line.starts_with("base_url") {
+                                if let Some(url) = line.split('=').nth(1) {
+                                    return Some(url.trim().trim_matches('"').to_string());
+                                }
+                            }
+                        }
+                        None
+                    })
+                    .unwrap_or_else(|| "https://api.openai.com/v1".to_string());
+                
+                providers.push(CcSwitchProviderItem {
+                    name: format!("{} (cc-switch)", name),
+                    base_url,
+                    model_count: -1,
+                    source: "cc_switch_codex".to_string(),
+                    tool: Some("cc_switch".to_string()),
+                    inferred_model_type: Some("codex".to_string()),
+                    current_model: None,
+                });
+            }
+        }
+    }
+    
+    // 读取 gemini.providers（Gemini CLI 的供应商）
+    if let Some(gemini_providers) = json.get("gemini").and_then(|v| v.get("providers")) {
+        if let Some(obj) = gemini_providers.as_object() {
+            for (_id, provider) in obj {
+                let name = provider.get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Unknown")
+                    .to_string();
+                
+                let base_url = provider
+                    .get("settingsConfig")
+                    .and_then(|sc| sc.get("env"))
+                    .and_then(|env| env.get("GOOGLE_GEMINI_BASE_URL"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("https://generativelanguage.googleapis.com")
+                    .to_string();
+                
+                let model = provider
+                    .get("settingsConfig")
+                    .and_then(|sc| sc.get("env"))
+                    .and_then(|env| env.get("GEMINI_MODEL"))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                
+                providers.push(CcSwitchProviderItem {
+                    name: format!("{} (cc-switch)", name),
+                    base_url,
+                    model_count: -1,
+                    source: "cc_switch_gemini".to_string(),
+                    tool: Some("cc_switch".to_string()),
+                    inferred_model_type: Some("gemini".to_string()),
+                    current_model: model,
+                });
+            }
+        }
+    }
+    
+    // 兼容旧格式：读取 universalProviders（跨应用通用供应商）
     if let Some(universal_providers) = json.get("universalProviders") {
         if let Some(arr) = universal_providers.as_array() {
             for provider in arr {
@@ -556,13 +648,11 @@ pub async fn get_cc_switch_providers() -> Result<Vec<CcSwitchProviderItem>, Stri
                     .unwrap_or("")
                     .to_string();
                 
-                // 检查启用的应用
                 let apps = provider.get("apps");
                 let claude_enabled = apps.and_then(|a| a.get("claude")).and_then(|v| v.as_bool()).unwrap_or(false);
                 let codex_enabled = apps.and_then(|a| a.get("codex")).and_then(|v| v.as_bool()).unwrap_or(false);
                 let gemini_enabled = apps.and_then(|a| a.get("gemini")).and_then(|v| v.as_bool()).unwrap_or(false);
                 
-                // 推断模型类型
                 let inferred_type = if claude_enabled {
                     "claude"
                 } else if codex_enabled {
@@ -570,10 +660,9 @@ pub async fn get_cc_switch_providers() -> Result<Vec<CcSwitchProviderItem>, Stri
                 } else if gemini_enabled {
                     "gemini"
                 } else {
-                    "codex" // 默认
+                    "codex"
                 };
                 
-                // 获取应用信息
                 let apps_info = format!(
                     "{}{}{}",
                     if claude_enabled { "Claude " } else { "" },
@@ -582,7 +671,7 @@ pub async fn get_cc_switch_providers() -> Result<Vec<CcSwitchProviderItem>, Stri
                 ).trim().to_string();
                 
                 providers.push(CcSwitchProviderItem {
-                    name: format!("{} ({})", name, apps_info),
+                    name: format!("{} ({}) (cc-switch)", name, apps_info),
                     base_url,
                     model_count: -1,
                     source: "cc_switch_universal".to_string(),
@@ -594,7 +683,44 @@ pub async fn get_cc_switch_providers() -> Result<Vec<CcSwitchProviderItem>, Stri
         }
     }
     
-    // 读取 codexProviders（Codex CLI 的供应商）
+    // 兼容旧格式：读取 claudeProviders
+    if let Some(claude_providers) = json.get("claudeProviders").and_then(|v| v.get("providers")) {
+        if let Some(obj) = claude_providers.as_object() {
+            for (_id, provider) in obj {
+                let name = provider.get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Unknown")
+                    .to_string();
+                
+                let base_url = provider
+                    .get("settingsConfig")
+                    .and_then(|sc| sc.get("env"))
+                    .and_then(|env| env.get("ANTHROPIC_BASE_URL"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("https://api.anthropic.com")
+                    .to_string();
+                
+                let model = provider
+                    .get("settingsConfig")
+                    .and_then(|sc| sc.get("env"))
+                    .and_then(|env| env.get("ANTHROPIC_MODEL"))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                
+                providers.push(CcSwitchProviderItem {
+                    name: format!("{} (cc-switch)", name),
+                    base_url,
+                    model_count: -1,
+                    source: "cc_switch_claude".to_string(),
+                    tool: Some("cc_switch".to_string()),
+                    inferred_model_type: Some("claude".to_string()),
+                    current_model: model,
+                });
+            }
+        }
+    }
+    
+    // 兼容旧格式：读取 codexProviders
     if let Some(codex_providers) = json.get("codexProviders").and_then(|v| v.get("providers")) {
         if let Some(obj) = codex_providers.as_object() {
             for (_id, provider) in obj {
@@ -603,14 +729,11 @@ pub async fn get_cc_switch_providers() -> Result<Vec<CcSwitchProviderItem>, Stri
                     .unwrap_or("Unknown")
                     .to_string();
                 
-                // Codex 的 base_url 在 settingsConfig.config 中的 TOML 字符串里
-                // 这里简化处理，直接从 settingsConfig 提取
                 let base_url = provider
                     .get("settingsConfig")
                     .and_then(|sc| sc.get("config"))
                     .and_then(|v| v.as_str())
                     .and_then(|toml| {
-                        // 从 TOML 字符串中提取 base_url
                         for line in toml.lines() {
                             let line = line.trim();
                             if line.starts_with("base_url") {
