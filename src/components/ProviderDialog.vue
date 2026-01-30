@@ -627,6 +627,15 @@ async function save() {
           }
         })
       }
+      
+      // 编辑模式下添加新模型
+      if (customModels.value.length > 0) {
+        const newModels = customModels.value.map(modelName => ({ id: modelName, name: modelName }))
+        await invoke('add_models_batch_detailed', {
+          providerName: form.value.name,
+          inputs: newModels,
+        })
+      }
     } else {
       await invoke('add_provider', {
         input: {
