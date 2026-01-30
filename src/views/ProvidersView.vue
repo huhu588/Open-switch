@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { invoke } from '@tauri-apps/api/core'
-import { useProvidersStore, type DeployedProviderItem } from '@/stores/providers'
+import { useProvidersStore } from '@/stores/providers'
 
 const { t } = useI18n()
 import ProviderList from '@/components/ProviderList.vue'

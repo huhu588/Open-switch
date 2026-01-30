@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { invoke } from '@tauri-apps/api/core'
 import { useProvidersStore, type DeployedProviderItem } from '@/stores/providers'
 import SvgIcon from '@/components/SvgIcon.vue'
 
