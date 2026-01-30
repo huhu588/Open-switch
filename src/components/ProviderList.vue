@@ -87,8 +87,29 @@ function getToolBadges(provider: ProviderItem) {
     }
   }
   
+  // 根据 model_type 确定哪些工具标识是相关的
+  // OpenCode 适用于所有类型
+  // Claude Code 只适用于 claude 类型
+  // Codex CLI 只适用于 codex 类型
+  // Gemini CLI 只适用于 gemini 类型
+  const relevantTools = deployedTools.filter(tool => {
+    if (tool === 'opencode' || tool === 'cc_switch' || tool === 'open_switch') {
+      return true // OpenCode、cc-switch、Open Switch 适用于所有类型
+    }
+    if (tool === 'claude_code' && provider.model_type === 'claude') {
+      return true
+    }
+    if (tool === 'codex' && provider.model_type === 'codex') {
+      return true
+    }
+    if (tool === 'gemini' && provider.model_type === 'gemini') {
+      return true
+    }
+    return false
+  })
+  
   // 根据已部署的工具显示标识
-  for (const tool of deployedTools) {
+  for (const tool of relevantTools) {
     switch (tool) {
       case 'opencode':
         badges.push({ label: 'OpenCode', class: 'bg-blue-500/10 text-blue-600 border-blue-500/30' })
