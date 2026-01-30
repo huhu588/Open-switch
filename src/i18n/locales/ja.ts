@@ -102,7 +102,10 @@ export default {
     notTested: '未テスト',
     modelManagement: 'モデル管理',
     addModel: 'モデル追加',
-    noModels: 'モデルなし'
+    noModels: 'モデルなし',
+    // Open Switch 統一設定
+    saveToOpenSwitch: 'Open Switch 統一設定に保存',
+    saveToOpenSwitchDesc: '設定を ~/.open-switch/config.json に保存し、ツール間で共有できます'
   },
 
   // Model related

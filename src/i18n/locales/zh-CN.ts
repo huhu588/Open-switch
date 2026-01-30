@@ -102,6 +102,9 @@ export default {
     notTested: '未测试',
     modelManagement: '模型管理',
     addModel: '添加模型',
+    // Open Switch 统一配置
+    saveToOpenSwitch: '保存到 Open Switch 统一配置',
+    saveToOpenSwitchDesc: '将配置保存到 ~/.open-switch/config.json，支持跨工具共享',
     noModels: '暂无模型'
   },
 

@@ -102,7 +102,10 @@ export default {
     notTested: 'Not Tested',
     modelManagement: 'Model Management',
     addModel: 'Add Model',
-    noModels: 'No models'
+    noModels: 'No models',
+    // Open Switch unified config
+    saveToOpenSwitch: 'Save to Open Switch Unified Config',
+    saveToOpenSwitchDesc: 'Save configuration to ~/.open-switch/config.json for cross-tool sharing'
   },
 
   // Model related

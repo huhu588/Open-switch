@@ -77,6 +77,9 @@ const autoSelectFastestEnabled = ref(true)
 // 应用目标选择
 const applyTargets = ref<string[]>(['opencode'])
 
+// 保存到 Open Switch 统一配置
+const saveToOpenSwitch = ref(true)
+
 // 删除确认对话框
 const showDeleteModelDialog = ref(false)
 const deleteModelTarget = ref<string | null>(null)
@@ -723,6 +726,57 @@ async function save() {
       }
     }
     
+    // 保存到 Open Switch 统一配置
+    if (saveToOpenSwitch.value) {
+      try {
+        // 构建 OpenCode 模型配置
+        const opencodeModels: Record<string, { name: string }> = {}
+        const allModels = [
+          ...(autoAddModels.value ? selectedModels.value : []),
+          ...customModels.value,
+          ...existingModels.value.map(m => m.id)
+        ]
+        for (const modelId of allModels) {
+          const modelDef = presetModels.value.find(m => m.id === modelId)
+          opencodeModels[modelId] = { name: modelDef?.name || modelId }
+        }
+        
+        await invoke('add_open_switch_provider', {
+          input: {
+            name: form.value.name,
+            base_url: activeUrl,
+            api_key: form.value.api_key,
+            apps: {
+              opencode: applyTargets.value.includes('opencode'),
+              claude: applyTargets.value.includes('claude_code'),
+              codex: applyTargets.value.includes('codex'),
+              gemini: applyTargets.value.includes('gemini'),
+            },
+            models: {
+              opencode: applyTargets.value.includes('opencode') ? {
+                npm: getNpmPackageByProtocol(form.value.protocol),
+                models: opencodeModels,
+              } : undefined,
+              claude: applyTargets.value.includes('claude_code') ? {
+                model: firstModelId,
+              } : undefined,
+              codex: applyTargets.value.includes('codex') ? {
+                model: firstModelId,
+                reasoning_effort: 'high',
+              } : undefined,
+              gemini: applyTargets.value.includes('gemini') ? {
+                model: firstModelId,
+              } : undefined,
+            },
+            notes: form.value.description || undefined,
+          }
+        })
+      } catch (e) {
+        console.warn('保存到 Open Switch 统一配置失败:', e)
+        // 不中断整个流程
+      }
+    }
+    
     emit('saved')
     close()
   } catch (e) {
@@ -839,6 +893,21 @@ async function save() {
                   </label>
                 </div>
                 <p class="text-xs text-muted-foreground">选择要将此服务商配置应用到的工具</p>
+              </div>
+
+              <!-- 保存到 Open Switch 统一配置 -->
+              <div class="flex items-center gap-3 p-3 rounded-lg bg-accent/5 border border-accent/20">
+                <label class="flex items-center gap-2 cursor-pointer flex-1">
+                  <input
+                    type="checkbox"
+                    v-model="saveToOpenSwitch"
+                    class="w-4 h-4 rounded text-accent"
+                  />
+                  <div>
+                    <span class="text-sm font-medium">{{ t('provider.saveToOpenSwitch') }}</span>
+                    <p class="text-xs text-muted-foreground">{{ t('provider.saveToOpenSwitchDesc') }}</p>
+                  </div>
+                </label>
               </div>
 
               <!-- 名称 -->

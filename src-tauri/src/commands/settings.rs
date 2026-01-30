@@ -429,53 +429,57 @@ pub async fn get_cc_switch_providers() -> Result<Vec<CcSwitchProviderItem>, Stri
     let config_path = std::path::Path::new(&home).join(".cc-switch").join("config.json");
     
     // 2.1 尝试读取 SQLite 数据库 (cc-switch v3.8.0+)
+    // 表结构: providers(id, app_type, name, settings_config, website_url, notes, is_current, ...)
+    // settings_config 是 JSON: {"env": {"ANTHROPIC_BASE_URL": "...", "ANTHROPIC_AUTH_TOKEN": "..."}}
     if db_path.exists() {
         if let Ok(conn) = rusqlite::Connection::open(&db_path) {
-            // 读取 providers 表
-            if let Ok(mut stmt) = conn.prepare("SELECT id, name, baseUrl, apiKey, enabled, models FROM providers") {
+            // 读取 providers 表 - 使用正确的列名
+            if let Ok(mut stmt) = conn.prepare("SELECT id, app_type, name, settings_config, website_url, notes, is_current FROM providers") {
                 if let Ok(rows) = stmt.query_map([], |row| {
                     Ok((
                         row.get::<_, String>(0).unwrap_or_default(),  // id
-                        row.get::<_, String>(1).unwrap_or_default(),  // name
-                        row.get::<_, String>(2).unwrap_or_default(),  // baseUrl
-                        row.get::<_, String>(3).unwrap_or_default(),  // apiKey
-                        row.get::<_, i32>(4).unwrap_or(1),            // enabled
-                        row.get::<_, String>(5).unwrap_or_default(),  // models (JSON)
+                        row.get::<_, String>(1).unwrap_or_default(),  // app_type (claude/codex/gemini)
+                        row.get::<_, String>(2).unwrap_or_default(),  // name
+                        row.get::<_, String>(3).unwrap_or_default(),  // settings_config (JSON)
+                        row.get::<_, String>(4).unwrap_or_default(),  // website_url
+                        row.get::<_, String>(5).unwrap_or_default(),  // notes
+                        row.get::<_, i32>(6).unwrap_or(0),            // is_current
                     ))
                 }) {
                     for row in rows.flatten() {
-                        let (id, name, base_url, _api_key, enabled, models_json) = row;
+                        let (id, app_type, name, settings_config, website_url, notes, is_current) = row;
                         
-                        if enabled == 0 {
-                            continue; // 跳过禁用的 provider
-                        }
-                        
-                        // 解析 models JSON 获取模型数量
-                        let model_count = if let Ok(models) = serde_json::from_str::<serde_json::Value>(&models_json) {
-                            if let Some(obj) = models.as_object() {
-                                obj.len() as i32
-                            } else {
-                                0
-                            }
+                        // 解析 settings_config JSON 获取 base_url
+                        let base_url = if let Ok(config) = serde_json::from_str::<serde_json::Value>(&settings_config) {
+                            config.get("env")
+                                .and_then(|env| env.get("ANTHROPIC_BASE_URL"))
+                                .or_else(|| config.get("env").and_then(|env| env.get("GOOGLE_GEMINI_BASE_URL")))
+                                .and_then(|v| v.as_str())
+                                .unwrap_or(&website_url)
+                                .to_string()
                         } else {
-                            0
+                            website_url.clone()
                         };
                         
-                        // 根据 base_url 推断模型类型
-                        let inferred_type = if base_url.contains("anthropic") || base_url.contains("claude") {
-                            "claude"
-                        } else if base_url.contains("openai") {
-                            "codex"
-                        } else if base_url.contains("google") || base_url.contains("gemini") {
-                            "gemini"
+                        // 根据 app_type 推断模型类型
+                        let inferred_type = match app_type.as_str() {
+                            "claude" => "claude",
+                            "codex" => "codex",
+                            "gemini" => "gemini",
+                            _ => "claude" // 默认 Claude
+                        };
+                        
+                        // 显示名称包含备注
+                        let display_name = if notes.is_empty() {
+                            format!("{} (cc-switch)", name)
                         } else {
-                            "claude" // 默认 Claude
+                            format!("{} (cc-switch)", name)
                         };
                         
                         providers.push(CcSwitchProviderItem {
-                            name: format!("{} (cc-switch)", name),
+                            name: display_name,
                             base_url,
-                            model_count,
+                            model_count: if is_current == 1 { 1 } else { 0 },
                             source: format!("cc_switch_db_{}", id),
                             tool: Some("cc_switch".to_string()),
                             inferred_model_type: Some(inferred_type.to_string()),
