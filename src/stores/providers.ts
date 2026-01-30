@@ -37,6 +37,7 @@ export interface ModelItem {
 export interface DeployedProviderItem {
   name: string
   base_url: string
+  api_key?: string // API Key（用于导入时自动填充）
   model_count: number // -1 表示已配置但不是模型列表（如 Claude Code/Codex/Gemini）
   source: string // "global", "project", "claude_code", "codex", "gemini"
   inferred_model_type?: string // 推断的模型类型

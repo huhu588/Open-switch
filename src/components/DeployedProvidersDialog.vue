@@ -187,10 +187,10 @@ async function importProvider(modelType: string) {
       // OpenCode 来源直接导入
       await store.importDeployedProvider(provider.name, modelType)
     } else {
-      // 其他工具来源：创建新的 Provider（需要用户后续补充 API Key）
+      // 其他工具来源：创建新的 Provider，使用从 cc-switch 获取的 API Key
       await store.addProvider({
         name: provider.name,
-        api_key: '', // 需要用户后续填写
+        api_key: provider.api_key || '', // 使用获取到的 API Key，如果没有则为空
         base_url: provider.base_url,
         description: `从 ${getToolLabel(provider.tool)} 导入`,
         model_type: modelType
@@ -239,10 +239,10 @@ async function syncAll() {
           // OpenCode 来源直接导入
           await store.importDeployedProvider(provider.name, modelType)
         } else {
-          // 其他工具来源：创建新的 Provider
+          // 其他工具来源：创建新的 Provider，使用获取到的 API Key
           await store.addProvider({
             name: provider.name,
-            api_key: '', // 需要用户后续填写
+            api_key: provider.api_key || '', // 使用获取到的 API Key
             base_url: provider.base_url,
             description: `从 ${getToolLabel(provider.tool)} 导入`,
             model_type: modelType

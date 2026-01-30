@@ -344,6 +344,7 @@ pub async fn detect_env_conflicts() -> Result<Vec<EnvConflict>, String> {
 pub struct CcSwitchProviderItem {
     pub name: String,
     pub base_url: String,
+    pub api_key: Option<String>,  // API Key（用于导入时自动填充）
     pub model_count: i32,
     pub source: String,
     pub tool: Option<String>,
@@ -411,6 +412,7 @@ pub async fn get_cc_switch_providers() -> Result<Vec<CcSwitchProviderItem>, Stri
                         providers.push(CcSwitchProviderItem {
                             name: if apps_info.is_empty() { name } else { format!("{} ({})", name, apps_info) },
                             base_url,
+                            api_key: None, // Open Switch 配置不包含 API key
                             model_count: -1,
                             source: "open_switch".to_string(),
                             tool: Some("open_switch".to_string()),
@@ -447,19 +449,35 @@ pub async fn get_cc_switch_providers() -> Result<Vec<CcSwitchProviderItem>, Stri
                     ))
                 }) {
                     for row in rows.flatten() {
-                        let (id, app_type, name, settings_config, website_url, notes, is_current) = row;
+                        let (id, app_type, name, settings_config, website_url, _notes, is_current) = row;
                         
-                        // 解析 settings_config JSON 获取 base_url
-                        let base_url = if let Ok(config) = serde_json::from_str::<serde_json::Value>(&settings_config) {
-                            config.get("env")
-                                .and_then(|env| env.get("ANTHROPIC_BASE_URL"))
-                                .or_else(|| config.get("env").and_then(|env| env.get("GOOGLE_GEMINI_BASE_URL")))
-                                .and_then(|v| v.as_str())
-                                .unwrap_or(&website_url)
-                                .to_string()
-                        } else {
-                            website_url.clone()
-                        };
+                        // 解析 settings_config JSON
+                        let config: Option<serde_json::Value> = serde_json::from_str(&settings_config).ok();
+                        
+                        // 获取 base_url
+                        let base_url = config.as_ref()
+                            .and_then(|c| c.get("env"))
+                            .and_then(|env| {
+                                env.get("ANTHROPIC_BASE_URL")
+                                    .or_else(|| env.get("GOOGLE_GEMINI_BASE_URL"))
+                                    .or_else(|| env.get("OPENAI_BASE_URL"))
+                            })
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string())
+                            .unwrap_or_else(|| website_url.clone());
+                        
+                        // 获取 API key (尝试多个可能的 key 名称)
+                        let api_key = config.as_ref()
+                            .and_then(|c| c.get("env"))
+                            .and_then(|env| {
+                                env.get("ANTHROPIC_AUTH_TOKEN")
+                                    .or_else(|| env.get("ANTHROPIC_API_KEY"))
+                                    .or_else(|| env.get("GOOGLE_GEMINI_API_KEY"))
+                                    .or_else(|| env.get("GEMINI_API_KEY"))
+                                    .or_else(|| env.get("OPENAI_API_KEY"))
+                            })
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string());
                         
                         // 根据 app_type 推断模型类型
                         let inferred_type = match app_type.as_str() {
@@ -469,16 +487,13 @@ pub async fn get_cc_switch_providers() -> Result<Vec<CcSwitchProviderItem>, Stri
                             _ => "claude" // 默认 Claude
                         };
                         
-                        // 显示名称包含备注
-                        let display_name = if notes.is_empty() {
-                            format!("{} (cc-switch)", name)
-                        } else {
-                            format!("{} (cc-switch)", name)
-                        };
+                        // 显示名称
+                        let display_name = format!("{} (cc-switch)", name);
                         
                         providers.push(CcSwitchProviderItem {
                             name: display_name,
                             base_url,
+                            api_key,
                             model_count: if is_current == 1 { 1 } else { 0 },
                             source: format!("cc_switch_db_{}", id),
                             tool: Some("cc_switch".to_string()),
@@ -551,7 +566,8 @@ pub async fn get_cc_switch_providers() -> Result<Vec<CcSwitchProviderItem>, Stri
                 providers.push(CcSwitchProviderItem {
                     name: format!("{} (cc-switch)", name),
                     base_url,
-                    model_count: if api_key.is_some() { 0 } else { -1 },
+                    api_key,
+                    model_count: 0,
                     source: "cc_switch_claude".to_string(),
                     tool: Some("cc_switch".to_string()),
                     inferred_model_type: Some("claude".to_string()),
@@ -588,10 +604,19 @@ pub async fn get_cc_switch_providers() -> Result<Vec<CcSwitchProviderItem>, Stri
                     })
                     .unwrap_or_else(|| "https://api.openai.com/v1".to_string());
                 
+                // Codex 的 API key 可能在 env 或 config 中
+                let api_key = provider
+                    .get("settingsConfig")
+                    .and_then(|sc| sc.get("env"))
+                    .and_then(|env| env.get("OPENAI_API_KEY"))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                
                 providers.push(CcSwitchProviderItem {
                     name: format!("{} (cc-switch)", name),
                     base_url,
-                    model_count: -1,
+                    api_key,
+                    model_count: 0,
                     source: "cc_switch_codex".to_string(),
                     tool: Some("cc_switch".to_string()),
                     inferred_model_type: Some("codex".to_string()),
@@ -618,6 +643,16 @@ pub async fn get_cc_switch_providers() -> Result<Vec<CcSwitchProviderItem>, Stri
                     .unwrap_or("https://generativelanguage.googleapis.com")
                     .to_string();
                 
+                let api_key = provider
+                    .get("settingsConfig")
+                    .and_then(|sc| sc.get("env"))
+                    .and_then(|env| {
+                        env.get("GOOGLE_GEMINI_API_KEY")
+                            .or_else(|| env.get("GEMINI_API_KEY"))
+                    })
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                
                 let model = provider
                     .get("settingsConfig")
                     .and_then(|sc| sc.get("env"))
@@ -628,7 +663,8 @@ pub async fn get_cc_switch_providers() -> Result<Vec<CcSwitchProviderItem>, Stri
                 providers.push(CcSwitchProviderItem {
                     name: format!("{} (cc-switch)", name),
                     base_url,
-                    model_count: -1,
+                    api_key,
+                    model_count: 0,
                     source: "cc_switch_gemini".to_string(),
                     tool: Some("cc_switch".to_string()),
                     inferred_model_type: Some("gemini".to_string()),
@@ -674,10 +710,15 @@ pub async fn get_cc_switch_providers() -> Result<Vec<CcSwitchProviderItem>, Stri
                     if gemini_enabled { "Gemini" } else { "" }
                 ).trim().to_string();
                 
+                let api_key = provider.get("apiKey")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                
                 providers.push(CcSwitchProviderItem {
                     name: format!("{} ({}) (cc-switch)", name, apps_info),
                     base_url,
-                    model_count: -1,
+                    api_key,
+                    model_count: 0,
                     source: "cc_switch_universal".to_string(),
                     tool: Some("cc_switch".to_string()),
                     inferred_model_type: Some(inferred_type.to_string()),
@@ -704,6 +745,16 @@ pub async fn get_cc_switch_providers() -> Result<Vec<CcSwitchProviderItem>, Stri
                     .unwrap_or("https://api.anthropic.com")
                     .to_string();
                 
+                let api_key = provider
+                    .get("settingsConfig")
+                    .and_then(|sc| sc.get("env"))
+                    .and_then(|env| {
+                        env.get("ANTHROPIC_AUTH_TOKEN")
+                            .or_else(|| env.get("ANTHROPIC_API_KEY"))
+                    })
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                
                 let model = provider
                     .get("settingsConfig")
                     .and_then(|sc| sc.get("env"))
@@ -714,7 +765,8 @@ pub async fn get_cc_switch_providers() -> Result<Vec<CcSwitchProviderItem>, Stri
                 providers.push(CcSwitchProviderItem {
                     name: format!("{} (cc-switch)", name),
                     base_url,
-                    model_count: -1,
+                    api_key,
+                    model_count: 0,
                     source: "cc_switch_claude".to_string(),
                     tool: Some("cc_switch".to_string()),
                     inferred_model_type: Some("claude".to_string()),
@@ -753,7 +805,8 @@ pub async fn get_cc_switch_providers() -> Result<Vec<CcSwitchProviderItem>, Stri
                 providers.push(CcSwitchProviderItem {
                     name,
                     base_url,
-                    model_count: -1,
+                    api_key: None,
+                    model_count: 0,
                     source: "cc_switch_codex".to_string(),
                     tool: Some("cc_switch".to_string()),
                     inferred_model_type: Some("codex".to_string()),
@@ -781,6 +834,16 @@ pub async fn get_cc_switch_providers() -> Result<Vec<CcSwitchProviderItem>, Stri
                     .unwrap_or("https://generativelanguage.googleapis.com")
                     .to_string();
                 
+                let api_key = provider
+                    .get("settingsConfig")
+                    .and_then(|sc| sc.get("env"))
+                    .and_then(|env| {
+                        env.get("GOOGLE_GEMINI_API_KEY")
+                            .or_else(|| env.get("GEMINI_API_KEY"))
+                    })
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                
                 let model = provider
                     .get("settingsConfig")
                     .and_then(|sc| sc.get("env"))
@@ -791,7 +854,8 @@ pub async fn get_cc_switch_providers() -> Result<Vec<CcSwitchProviderItem>, Stri
                 providers.push(CcSwitchProviderItem {
                     name,
                     base_url,
-                    model_count: -1,
+                    api_key,
+                    model_count: 0,
                     source: "cc_switch_gemini".to_string(),
                     tool: Some("cc_switch".to_string()),
                     inferred_model_type: Some("gemini".to_string()),
