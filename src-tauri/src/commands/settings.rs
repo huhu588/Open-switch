@@ -222,6 +222,13 @@ fn mask_value(value: &str) -> String {
     }
 }
 
+/// 刷新托盘菜单（当 Provider 列表变化时调用）
+#[tauri::command]
+pub fn refresh_tray_menu(app: tauri::AppHandle) -> Result<(), String> {
+    crate::refresh_tray_menu(&app);
+    Ok(())
+}
+
 /// 检测环境变量冲突
 #[tauri::command]
 pub async fn detect_env_conflicts() -> Result<Vec<EnvConflict>, String> {
@@ -328,4 +335,277 @@ pub async fn detect_env_conflicts() -> Result<Vec<EnvConflict>, String> {
         .collect();
     
     Ok(conflicts)
+}
+
+// ============== cc-switch 配置读取 ==============
+
+/// cc-switch 服务商项
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CcSwitchProviderItem {
+    pub name: String,
+    pub base_url: String,
+    pub model_count: i32,
+    pub source: String,
+    pub tool: Option<String>,
+    pub inferred_model_type: Option<String>,
+    pub current_model: Option<String>,
+}
+
+/// 读取 cc-switch 和 Open Switch 配置的服务商列表
+/// cc-switch 存储在 ~/.cc-switch/config.json
+/// Open Switch 存储在 ~/.open-switch/config.json
+#[tauri::command]
+pub async fn get_cc_switch_providers() -> Result<Vec<CcSwitchProviderItem>, String> {
+    let mut providers = Vec::new();
+    
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .map_err(|_| "无法获取用户目录".to_string())?;
+    
+    // 1. 先读取 Open Switch 自己的配置 (~/.open-switch/config.json)
+    let open_switch_path = std::path::Path::new(&home).join(".open-switch").join("config.json");
+    if open_switch_path.exists() {
+        if let Ok(content) = std::fs::read_to_string(&open_switch_path) {
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                if let Some(unified_providers) = json.get("providers").and_then(|v| v.as_object()) {
+                    for (_id, provider) in unified_providers {
+                        let name = provider.get("name")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("Unknown")
+                            .to_string();
+                        
+                        let base_url = provider.get("baseUrl")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        
+                        // 检查启用的应用
+                        let apps = provider.get("apps");
+                        let opencode_enabled = apps.and_then(|a| a.get("opencode")).and_then(|v| v.as_bool()).unwrap_or(false);
+                        let claude_enabled = apps.and_then(|a| a.get("claude")).and_then(|v| v.as_bool()).unwrap_or(false);
+                        let codex_enabled = apps.and_then(|a| a.get("codex")).and_then(|v| v.as_bool()).unwrap_or(false);
+                        let gemini_enabled = apps.and_then(|a| a.get("gemini")).and_then(|v| v.as_bool()).unwrap_or(false);
+                        
+                        // 推断模型类型
+                        let inferred_type = if opencode_enabled {
+                            "opencode"
+                        } else if claude_enabled {
+                            "claude"
+                        } else if codex_enabled {
+                            "codex"
+                        } else if gemini_enabled {
+                            "gemini"
+                        } else {
+                            "codex"
+                        };
+                        
+                        // 获取应用信息
+                        let mut apps_list = Vec::new();
+                        if opencode_enabled { apps_list.push("OpenCode"); }
+                        if claude_enabled { apps_list.push("Claude"); }
+                        if codex_enabled { apps_list.push("Codex"); }
+                        if gemini_enabled { apps_list.push("Gemini"); }
+                        let apps_info = apps_list.join(" ");
+                        
+                        providers.push(CcSwitchProviderItem {
+                            name: if apps_info.is_empty() { name } else { format!("{} ({})", name, apps_info) },
+                            base_url,
+                            model_count: -1,
+                            source: "open_switch".to_string(),
+                            tool: Some("open_switch".to_string()),
+                            inferred_model_type: Some(inferred_type.to_string()),
+                            current_model: None,
+                        });
+                    }
+                }
+            }
+        }
+    }
+    
+    // 2. 读取 cc-switch 的配置 (~/.cc-switch/config.json)
+    let config_path = std::path::Path::new(&home).join(".cc-switch").join("config.json");
+    
+    if !config_path.exists() {
+        // cc-switch 未安装或未配置
+        return Ok(providers);
+    }
+    
+    let content = std::fs::read_to_string(&config_path)
+        .map_err(|e| format!("读取 cc-switch 配置失败: {}", e))?;
+    
+    let json: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| format!("解析 cc-switch 配置失败: {}", e))?;
+    
+    // 读取 claudeProviders（Claude Code 的供应商）
+    if let Some(claude_providers) = json.get("claudeProviders").and_then(|v| v.get("providers")) {
+        if let Some(obj) = claude_providers.as_object() {
+            for (_id, provider) in obj {
+                let name = provider.get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Unknown")
+                    .to_string();
+                
+                // 从 settingsConfig.env 提取 base_url
+                let base_url = provider
+                    .get("settingsConfig")
+                    .and_then(|sc| sc.get("env"))
+                    .and_then(|env| env.get("ANTHROPIC_BASE_URL"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("https://api.anthropic.com")
+                    .to_string();
+                
+                // 从 settingsConfig.env 提取 model
+                let model = provider
+                    .get("settingsConfig")
+                    .and_then(|sc| sc.get("env"))
+                    .and_then(|env| env.get("ANTHROPIC_MODEL"))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                
+                providers.push(CcSwitchProviderItem {
+                    name,
+                    base_url,
+                    model_count: -1,
+                    source: "cc_switch_claude".to_string(),
+                    tool: Some("cc_switch".to_string()),
+                    inferred_model_type: Some("claude".to_string()),
+                    current_model: model,
+                });
+            }
+        }
+    }
+    
+    // 读取 universalProviders（跨应用通用供应商）
+    if let Some(universal_providers) = json.get("universalProviders") {
+        if let Some(arr) = universal_providers.as_array() {
+            for provider in arr {
+                let name = provider.get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Unknown")
+                    .to_string();
+                
+                let base_url = provider.get("baseUrl")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                
+                // 检查启用的应用
+                let apps = provider.get("apps");
+                let claude_enabled = apps.and_then(|a| a.get("claude")).and_then(|v| v.as_bool()).unwrap_or(false);
+                let codex_enabled = apps.and_then(|a| a.get("codex")).and_then(|v| v.as_bool()).unwrap_or(false);
+                let gemini_enabled = apps.and_then(|a| a.get("gemini")).and_then(|v| v.as_bool()).unwrap_or(false);
+                
+                // 推断模型类型
+                let inferred_type = if claude_enabled {
+                    "claude"
+                } else if codex_enabled {
+                    "codex"
+                } else if gemini_enabled {
+                    "gemini"
+                } else {
+                    "codex" // 默认
+                };
+                
+                // 获取应用信息
+                let apps_info = format!(
+                    "{}{}{}",
+                    if claude_enabled { "Claude " } else { "" },
+                    if codex_enabled { "Codex " } else { "" },
+                    if gemini_enabled { "Gemini" } else { "" }
+                ).trim().to_string();
+                
+                providers.push(CcSwitchProviderItem {
+                    name: format!("{} ({})", name, apps_info),
+                    base_url,
+                    model_count: -1,
+                    source: "cc_switch_universal".to_string(),
+                    tool: Some("cc_switch".to_string()),
+                    inferred_model_type: Some(inferred_type.to_string()),
+                    current_model: None,
+                });
+            }
+        }
+    }
+    
+    // 读取 codexProviders（Codex CLI 的供应商）
+    if let Some(codex_providers) = json.get("codexProviders").and_then(|v| v.get("providers")) {
+        if let Some(obj) = codex_providers.as_object() {
+            for (_id, provider) in obj {
+                let name = provider.get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Unknown")
+                    .to_string();
+                
+                // Codex 的 base_url 在 settingsConfig.config 中的 TOML 字符串里
+                // 这里简化处理，直接从 settingsConfig 提取
+                let base_url = provider
+                    .get("settingsConfig")
+                    .and_then(|sc| sc.get("config"))
+                    .and_then(|v| v.as_str())
+                    .and_then(|toml| {
+                        // 从 TOML 字符串中提取 base_url
+                        for line in toml.lines() {
+                            let line = line.trim();
+                            if line.starts_with("base_url") {
+                                if let Some(url) = line.split('=').nth(1) {
+                                    return Some(url.trim().trim_matches('"').to_string());
+                                }
+                            }
+                        }
+                        None
+                    })
+                    .unwrap_or_else(|| "https://api.openai.com/v1".to_string());
+                
+                providers.push(CcSwitchProviderItem {
+                    name,
+                    base_url,
+                    model_count: -1,
+                    source: "cc_switch_codex".to_string(),
+                    tool: Some("cc_switch".to_string()),
+                    inferred_model_type: Some("codex".to_string()),
+                    current_model: None,
+                });
+            }
+        }
+    }
+    
+    // 读取 geminiProviders（Gemini CLI 的供应商）
+    if let Some(gemini_providers) = json.get("geminiProviders").and_then(|v| v.get("providers")) {
+        if let Some(obj) = gemini_providers.as_object() {
+            for (_id, provider) in obj {
+                let name = provider.get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Unknown")
+                    .to_string();
+                
+                // 从 settingsConfig.env 提取 base_url
+                let base_url = provider
+                    .get("settingsConfig")
+                    .and_then(|sc| sc.get("env"))
+                    .and_then(|env| env.get("GOOGLE_GEMINI_BASE_URL"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("https://generativelanguage.googleapis.com")
+                    .to_string();
+                
+                let model = provider
+                    .get("settingsConfig")
+                    .and_then(|sc| sc.get("env"))
+                    .and_then(|env| env.get("GEMINI_MODEL"))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                
+                providers.push(CcSwitchProviderItem {
+                    name,
+                    base_url,
+                    model_count: -1,
+                    source: "cc_switch_gemini".to_string(),
+                    tool: Some("cc_switch".to_string()),
+                    inferred_model_type: Some("gemini".to_string()),
+                    current_model: model,
+                });
+            }
+        }
+    }
+    
+    Ok(providers)
 }

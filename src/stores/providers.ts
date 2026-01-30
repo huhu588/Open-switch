@@ -75,6 +75,15 @@ export const useProvidersStore = defineStore('providers', () => {
     providers.value.find(p => p.name === selectedProvider.value)
   )
 
+  // 刷新托盘菜单
+  async function refreshTrayMenu() {
+    try {
+      await invoke('refresh_tray_menu')
+    } catch (e) {
+      console.warn('刷新托盘菜单失败:', e)
+    }
+  }
+
   // 加载 Provider 列表
   async function loadProviders() {
     loading.value = true
@@ -86,6 +95,8 @@ export const useProvidersStore = defineStore('providers', () => {
         selectedProvider.value = providers.value[0].name
         await loadModels()
       }
+      // 刷新托盘菜单
+      await refreshTrayMenu()
     } catch (e) {
       error.value = String(e)
     } finally {
@@ -216,6 +227,8 @@ export const useProvidersStore = defineStore('providers', () => {
   async function toggleProvider(name: string, enabled: boolean) {
     await invoke('toggle_provider', { name, enabled })
     await loadProviders()
+    // 刷新托盘菜单
+    await refreshTrayMenu()
   }
 
   // 获取已部署到 opencode 的 Provider 列表
@@ -223,9 +236,18 @@ export const useProvidersStore = defineStore('providers', () => {
     return await invoke<DeployedProviderItem[]>('get_deployed_providers')
   }
 
-  // 获取所有工具的已配置服务商（OpenCode + Claude Code + Codex + Gemini）
+  // 获取所有工具的已配置服务商（OpenCode + Claude Code + Codex + Gemini + cc-switch）
   async function loadAllDeployedProviders(): Promise<DeployedProviderItem[]> {
     const allProviders: DeployedProviderItem[] = []
+    
+    // 0. cc-switch 配置 (~/.cc-switch/config.json)
+    // cc-switch 存储的服务商列表，这是主要的配置来源
+    try {
+      const ccSwitchProviders = await invoke<DeployedProviderItem[]>('get_cc_switch_providers')
+      allProviders.push(...ccSwitchProviders)
+    } catch (e) {
+      console.warn('加载 cc-switch 配置失败:', e)
+    }
     
     // 1. OpenCode 配置
     try {
@@ -454,5 +476,7 @@ export const useProvidersStore = defineStore('providers', () => {
     // 延迟测试
     testProviderUrls,
     testAndAutoSelectFastest,
+    // 托盘菜单
+    refreshTrayMenu,
   }
 })

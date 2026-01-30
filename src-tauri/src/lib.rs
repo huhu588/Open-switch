@@ -91,11 +91,17 @@ fn handle_provider_click(app: &AppHandle, provider_name: &str) {
     {
         let config_state = app.state::<Mutex<ConfigManager>>();
         if let Ok(mut manager) = config_state.lock() {
-            // 切换 Provider 状态
-            let _ = manager.opencode_mut().toggle_provider(provider_name);
-            // 保存配置
-            let _ = manager.save();
-        }
+            // 获取当前状态
+            let current_enabled = manager.opencode()
+                .get_provider(provider_name)
+                .ok()
+                .flatten()
+                .map(|p| p.enabled)
+                .unwrap_or(false);
+            
+            // 切换到相反状态
+            let _ = manager.opencode_mut().toggle_provider(provider_name, !current_enabled);
+        };
     }
     
     // 刷新托盘菜单
@@ -308,6 +314,10 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             commands::set_autostart_enabled,
             // Environment conflict detection
             commands::detect_env_conflicts,
+            // Tray menu refresh
+            commands::refresh_tray_menu,
+            // cc-switch integration
+            commands::get_cc_switch_providers,
             // oh-my-opencode commands
             commands::check_ohmy_status,
             commands::get_available_models,
@@ -396,6 +406,15 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             commands::get_proxy_usage_trend,
             commands::get_provider_stats,
             commands::clear_proxy_usage_stats,
+            // Open Switch unified config commands
+            commands::get_open_switch_providers,
+            commands::get_open_switch_provider,
+            commands::add_open_switch_provider,
+            commands::update_open_switch_provider,
+            commands::remove_open_switch_provider,
+            commands::apply_open_switch_provider,
+            commands::import_to_open_switch,
+            commands::get_open_switch_config_path,
         ])
         .run(tauri::generate_context!())?;
 

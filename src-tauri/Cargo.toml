@@ -1,6 +1,6 @@
 [package]
 name = "open-switch"
-version = "1.4.8"
+version = "1.4.9"
 edition = "2021"
 description = "Open Switch工具"
 authors = ["moguw <weiyiding0@gmail.com>"]

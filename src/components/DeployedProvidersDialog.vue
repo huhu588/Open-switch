@@ -23,6 +23,7 @@ const loading = ref(false)
 const deleting = ref<string | null>(null)
 const importing = ref<string | null>(null)
 const error = ref<string | null>(null)
+const successMessage = ref<string | null>(null)
 const showModelTypeDialog = ref(false)
 const importingProvider = ref<DeployedProviderItem | null>(null)
 const syncingAll = ref(false)
@@ -59,12 +60,25 @@ function getSourceClass(source: string): string {
     case 'claude_code': return 'bg-orange-500/10 text-orange-500'
     case 'codex': return 'bg-purple-500/10 text-purple-500'
     case 'gemini': return 'bg-cyan-500/10 text-cyan-500'
+    case 'open_switch': return 'bg-accent/10 text-accent'
+    case 'cc_switch_claude': 
+    case 'cc_switch_codex': 
+    case 'cc_switch_gemini': 
+    case 'cc_switch_universal': return 'bg-pink-500/10 text-pink-500'
     default: return 'bg-gray-500/10 text-gray-500'
   }
 }
 
 // 获取来源显示名称
 function getSourceLabel(provider: DeployedProviderItem): string {
+  // Open Switch 自己的统一配置
+  if (provider.tool === 'open_switch') {
+    return 'Open Switch'
+  }
+  // cc-switch 来源
+  if (provider.tool === 'cc_switch') {
+    return 'cc-switch'
+  }
   if (provider.tool && provider.tool !== 'opencode') {
     return getToolLabel(provider.tool)
   }
@@ -175,11 +189,24 @@ async function syncAll() {
   
   syncingAll.value = true
   error.value = null
+  successMessage.value = null
   let successCount = 0
+  let skipCount = 0
   let failCount = 0
+  const failedNames: string[] = []
+  
+  // 获取已存在的 Provider 列表
+  const existingProviders = new Set(store.providers.map(p => p.name))
   
   try {
     for (const provider of deployedProviders.value) {
+      // 检查是否已存在
+      if (existingProviders.has(provider.name)) {
+        console.log(`跳过已存在的 Provider: ${provider.name}`)
+        skipCount++
+        continue
+      }
+      
       try {
         const modelType = provider.inferred_model_type || 'codex'
         
@@ -198,20 +225,38 @@ async function syncAll() {
         }
         successCount++
       } catch (e) {
-        console.error(`导入 ${provider.name} 失败:`, e)
-        failCount++
+        const errorMsg = String(e)
+        // 如果是"已存在"错误，当作跳过处理
+        if (errorMsg.includes('已存在')) {
+          skipCount++
+        } else {
+          console.error(`导入 ${provider.name} 失败:`, e)
+          failCount++
+          failedNames.push(provider.name)
+        }
       }
     }
     
     // 显示结果提示
-    if (failCount === 0) {
-      error.value = `成功导入 ${successCount} 个服务商`
+    const parts: string[] = []
+    if (successCount > 0) parts.push(`成功导入 ${successCount} 个`)
+    if (skipCount > 0) parts.push(`跳过已存在 ${skipCount} 个`)
+    
+    if (parts.length > 0) {
+      successMessage.value = parts.join('，')
+    }
+    
+    if (failCount > 0) {
+      error.value = `失败 ${failCount} 个: ${failedNames.join(', ')}`
     } else {
-      error.value = `成功 ${successCount} 个，失败 ${failCount} 个`
+      error.value = null
     }
     
     // 通知父组件刷新列表
     emit('imported')
+    
+    // 重新加载部署列表
+    await loadData()
   } finally {
     syncingAll.value = false
   }
@@ -236,6 +281,11 @@ async function syncAll() {
 
           <!-- 内容 -->
           <div class="px-5 py-4 max-h-[400px] overflow-y-auto">
+            <!-- 成功提示 -->
+            <div v-if="successMessage" class="mb-4 px-3 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-500 text-sm">
+              {{ successMessage }}
+            </div>
+            
             <!-- 错误提示 -->
             <div v-if="error" class="mb-4 px-3 py-2 rounded-lg bg-error-500/10 border border-error-500/30 text-error-500 text-sm">
               {{ error }}
@@ -275,14 +325,17 @@ async function syncAll() {
                   </div>
                   <div class="text-xs text-muted-foreground mt-1 truncate">
                     {{ provider.base_url }}
-                    <template v-if="provider.model_count >= 0">
+                    <template v-if="provider.model_count > 0">
                       · {{ provider.model_count }} {{ t('deployed.models') }}
                     </template>
                     <template v-else-if="provider.current_model">
                       · {{ provider.current_model }}
                     </template>
-                    <template v-else>
+                    <template v-else-if="provider.tool && provider.tool !== 'opencode'">
                       · 已配置
+                    </template>
+                    <template v-else-if="provider.model_count === 0">
+                      · 0 {{ t('deployed.models') }}
                     </template>
                   </div>
                 </div>
