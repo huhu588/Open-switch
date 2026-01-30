@@ -229,25 +229,30 @@ jobs:
           
           echo "=== Looking for signature files ==="
           find artifacts -name "*.sig" -type f 2>/dev/null || echo "No .sig files found"
+          echo "=== All artifacts ==="
+          find artifacts -type f | head -50
           
           # 读取 Windows NSIS 签名文件
           WIN_SIG=""
-          # 尝试多种可能的路径
-          for sigfile in \
-            "artifacts/Open-Switch-windows/Open Switch_${VERSION}_x64-setup.nsis.sig" \
-            "artifacts/Open Switch_${VERSION}_x64-setup.nsis.sig" \
-            "artifacts/Open-Switch-windows/Open.Switch_${VERSION}_x64-setup.exe.sig" \
-            "artifacts/Open.Switch_${VERSION}_x64-setup.exe.sig"; do
-            if [ -f "$sigfile" ]; then
-              WIN_SIG=$(cat "$sigfile")
-              echo "Found Windows signature at: $sigfile"
-              break
-            fi
-          done
+          # 使用 find 动态查找 exe.sig 文件
+          SIGFILE=$(find artifacts -name "*.exe.sig" -type f | head -1)
+          if [ -n "$SIGFILE" ] && [ -f "$SIGFILE" ]; then
+            WIN_SIG=$(cat "$SIGFILE")
+            echo "Found Windows signature at: $SIGFILE"
+            echo "Signature content (first 100 chars): ${WIN_SIG:0:100}..."
+          fi
           
           if [ -z "$WIN_SIG" ]; then
-            echo "WARNING: No Windows signature file found!"
+            echo "ERROR: No Windows signature file found! Updater will not work."
+            echo "Available files:"
+            find artifacts -type f
+            # 不退出，但记录错误
           fi
+          
+          # 查找实际的 exe 文件名
+          EXEFILE=$(find artifacts -name "*.exe" ! -name "*.exe.sig" -type f | head -1)
+          EXENAME=$(basename "$EXEFILE" 2>/dev/null || echo "Open.Switch_${VERSION}_x64-setup.exe")
+          echo "Found exe file: $EXEFILE -> $EXENAME"
           
           # 创建 latest.json (仅 Windows，macOS DMG 不支持自动更新)
           cat > artifacts/latest.json << EOF
@@ -258,7 +263,7 @@ jobs:
             "platforms": {
               "windows-x86_64": {
                 "signature": "${WIN_SIG}",
-                "url": "https://github.com/${REPO}/releases/download/v${VERSION}/Open.Switch_${VERSION}_x64-setup.exe"
+                "url": "https://github.com/${REPO}/releases/download/v${VERSION}/${EXENAME}"
               }
             }
           }
@@ -266,6 +271,11 @@ jobs:
           
           echo "Generated latest.json:"
           cat artifacts/latest.json
+          
+          # 验证签名不为空
+          if [ -z "$WIN_SIG" ]; then
+            echo "::warning::Signature is empty, auto-update will fail!"
+          fi
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
