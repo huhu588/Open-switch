@@ -92,9 +92,10 @@ function getToolBadges(provider: ProviderItem) {
   // Claude Code 只适用于 claude 类型
   // Codex CLI 只适用于 codex 类型
   // Gemini CLI 只适用于 gemini 类型
+  // cc_switch 和 open_switch 不单独显示，而是显示为对应的工具标识
   const relevantTools = deployedTools.filter(tool => {
-    if (tool === 'opencode' || tool === 'cc_switch' || tool === 'open_switch') {
-      return true // OpenCode、cc-switch、Open Switch 适用于所有类型
+    if (tool === 'opencode') {
+      return true
     }
     if (tool === 'claude_code' && provider.model_type === 'claude') {
       return true
@@ -105,11 +106,26 @@ function getToolBadges(provider: ProviderItem) {
     if (tool === 'gemini' && provider.model_type === 'gemini') {
       return true
     }
+    // cc_switch 和 open_switch 转换为对应的工具标识
+    if (tool === 'cc_switch' || tool === 'open_switch') {
+      return true // 会在下面转换
+    }
     return false
   })
   
-  // 根据已部署的工具显示标识
+  // 将 cc_switch/open_switch 转换为对应的工具标识
+  const normalizedTools = new Set<string>()
   for (const tool of relevantTools) {
+    if (tool === 'cc_switch' || tool === 'open_switch') {
+      // 根据 model_type 转换为对应的 CLI 工具
+      normalizedTools.add('opencode') // 都显示为 OpenCode
+    } else {
+      normalizedTools.add(tool)
+    }
+  }
+  
+  // 根据已部署的工具显示标识
+  for (const tool of normalizedTools) {
     switch (tool) {
       case 'opencode':
         badges.push({ label: 'OpenCode', class: 'bg-blue-500/10 text-blue-600 border-blue-500/30' })
@@ -122,12 +138,6 @@ function getToolBadges(provider: ProviderItem) {
         break
       case 'gemini':
         badges.push({ label: 'Gemini CLI', class: 'bg-cyan-500/10 text-cyan-500 border-cyan-500/30' })
-        break
-      case 'cc_switch':
-        badges.push({ label: 'cc-switch', class: 'bg-pink-500/10 text-pink-500 border-pink-500/30' })
-        break
-      case 'open_switch':
-        badges.push({ label: 'Open Switch', class: 'bg-accent/10 text-accent border-accent/30' })
         break
     }
   }
