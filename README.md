@@ -170,10 +170,17 @@ EXENAME=$(echo "$EXENAME" | sed 's/ /./g')
 
 发布后，确认 GitHub Release 中包含以下文件：
 
+**Windows（自动更新）**：
 - [ ] `Open.Switch_X.Y.Z_x64-setup.exe` - Windows 安装包
 - [ ] `Open.Switch_X.Y.Z_x64-setup.exe.sig` - Windows 签名文件
-- [ ] `latest.json` - 更新元数据文件
-- [ ] macOS DMG 文件（如果需要）
+
+**macOS（自动更新）**：
+- [ ] `Open.Switch.app.tar.gz` - macOS 更新包（Universal Binary）
+- [ ] `Open.Switch.app.tar.gz.sig` - macOS 签名文件
+- [ ] `Open.Switch_X.Y.Z_universal.dmg` - macOS 手动安装包（可选）
+
+**更新元数据**：
+- [ ] `latest.json` - 包含 Windows + macOS 平台配置
 
 ### 8. 发布流程（完整版）
 
@@ -225,11 +232,36 @@ edition = "2021"        # 只能是 2015/2018/2021/2024，不能用未来年份�
 - Cargo 只支持 `2015`, `2018`, `2021`, `2024` editions
 - 修复：改为 `edition = "2021"`
 
+#### 各平台构建配置
+
+| 平台 | 构建命令 | 输出格式 | 用于自动更新 |
+|------|----------|----------|--------------|
+| Windows | `--bundles nsis` | `.exe` + `.exe.sig` | ✅ |
+| macOS | `--target universal-apple-darwin` | `.tar.gz` + `.tar.gz.sig` + `.dmg` | ✅ |
+
+**macOS 构建说明**：
+- 使用 **Universal Binary** 同时支持 Intel (x86_64) 和 Apple Silicon (aarch64)
+- 需要添加两个 Rust targets：`aarch64-apple-darwin` 和 `x86_64-apple-darwin`
+- `.tar.gz` 用于自动更新，`.dmg` 用于手动安装
+- 未签名应用首次运行需要用户手动允许：`xattr -cr "/Applications/Open Switch.app"`
+
+**latest.json 平台标识**：
+```json
+{
+  "platforms": {
+    "windows-x86_64": { "url": "...exe", "signature": "..." },
+    "darwin-aarch64": { "url": "...tar.gz", "signature": "..." },
+    "darwin-x86_64": { "url": "...tar.gz", "signature": "..." }
+  }
+}
+```
+
 #### Node.js 和 Rust 版本要求
 
 GitHub Actions 中使用的版本：
 - **Node.js**: 20
 - **Rust**: stable (最新稳定版)
+- **macOS Runner**: macos-14 (支持 Universal Binary 构建)
 
 本地开发环境要求：
 - **Node.js**: >= 18
@@ -243,6 +275,8 @@ GitHub Actions 中使用的版本：
 
 ### 10. 故障排查
 
+#### 通用问题
+
 | 问题 | 可能原因 | 解决方案 |
 |------|----------|----------|
 | 检测不到新版本 | 版本号不一致 / Release 是 draft | 同步版本号 / 发布 Release |
@@ -252,6 +286,15 @@ GitHub Actions 中使用的版本：
 | GitHub Actions 失败 | Secrets 未配置 / 构建错误 | 检查 Secrets 和 Cargo.toml |
 | `edition` 错误 | 使用了不支持的 Rust edition | 改为 2021 |
 | npm ci 失败 | Node.js 版本不兼容 | 确保使用 Node.js 18+ |
+
+#### macOS 特定问题
+
+| 问题 | 可能原因 | 解决方案 |
+|------|----------|----------|
+| "应用已损坏" | 未签名应用被 Gatekeeper 阻止 | 执行 `xattr -cr "/Applications/Open Switch.app"` |
+| macOS 检测不到更新 | latest.json 缺少 darwin 平台 | 确保构建生成了 .tar.gz.sig 文件 |
+| Universal Binary 构建失败 | 缺少 Rust targets | 执行 `rustup target add aarch64-apple-darwin x86_64-apple-darwin` |
+| .tar.gz 文件未生成 | 使用了 `--bundles dmg` | 移除该参数，让 Tauri 生成默认 bundle |
 
 ### 11. 验证更新功能
 
