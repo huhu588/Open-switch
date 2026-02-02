@@ -250,15 +250,17 @@ jobs:
           fi
           
           # 查找实际的 exe 文件名
-          # 注意：Tauri 构建生成的文件名使用点号代替空格（如 Open.Switch_x.x.x_x64-setup.exe）
+          # 注意：Windows 构建的原始文件名可能带空格，但 GitHub Release 上传时会将空格转为点号
           EXEFILE=$(find artifacts -name "*.exe" ! -name "*.exe.sig" -type f | head -1)
           if [ -n "$EXEFILE" ]; then
             EXENAME=$(basename "$EXEFILE")
+            # GitHub Release 会将文件名中的空格转换为点号，所以这里也需要做同样的转换
+            EXENAME=$(echo "$EXENAME" | sed 's/ /./g')
           else
             # Fallback：使用 Tauri 的默认命名格式（点号代替空格）
             EXENAME="Open.Switch_${VERSION}_x64-setup.exe"
           fi
-          echo "Found exe file: $EXEFILE -> $EXENAME"
+          echo "Found exe file: $EXEFILE -> $EXENAME (with space replaced by dot)"
           
           # 创建 latest.json (仅 Windows，macOS DMG 不支持自动更新)
           # 使用 printf 避免 YAML heredoc 解析问题
