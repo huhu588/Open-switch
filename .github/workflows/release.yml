@@ -97,7 +97,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: v__VERSION__
-          releaseName: 'Open Switch v__VERSION__'
+          releaseName: 'Ai Switch v__VERSION__'
           releaseBody: '请查看 assets 下载此版本的安装包。'
           releaseDraft: true
           prerelease: false

@@ -106,7 +106,7 @@ export default {
     addModel: '添加模型',
     // Ai Switch 统一配置
     saveToOpenSwitch: '保存到 Ai Switch 统一配置',
-    saveToOpenSwitchDesc: '将配置保存到 ~/.open-switch/config.json，支持跨工具共享',
+    saveToOpenSwitchDesc: '将配置保存到 ~/.ai-switch/config.json，支持跨工具共享',
     noModels: '暂无模型'
   },
 

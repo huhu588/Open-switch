@@ -133,7 +133,7 @@ jobs:
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Open-Switch-macos
+          name: Ai-Switch-macos
           path: release-assets/*
 
   # Windows
@@ -178,7 +178,7 @@ jobs:
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Open-Switch-windows
+          name: Ai-Switch-windows
           path: |
             src-tauri/target/release/bundle/nsis/*.exe
             src-tauri/target/release/bundle/nsis/*.exe.sig
@@ -252,7 +252,7 @@ jobs:
           
           echo "{" > artifacts/latest.json
           echo "  \"version\": \"$VERSION\"," >> artifacts/latest.json
-          echo "  \"notes\": \"Open Switch v$VERSION release\"," >> artifacts/latest.json
+          echo "  \"notes\": \"Ai Switch v$VERSION release\"," >> artifacts/latest.json
           echo "  \"pub_date\": \"$PUB_DATE\"," >> artifacts/latest.json
           echo "  \"platforms\": {" >> artifacts/latest.json
           

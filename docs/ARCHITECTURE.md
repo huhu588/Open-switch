@@ -1,10 +1,10 @@
-# Open Switch 架构设计
+# Ai Switch 架构设计
 
 > 版本: v1.4.0 | 更新: 2026-01-29
 
 ## 概述
 
-Open Switch 是一个用于管理 OpenCode 配置的桌面应用工具，支持多 Provider、MCP 服务器、技能 (Skills)、规则 (Rule) 的统一管理，以及配置的备份与恢复。
+Ai Switch 是一个用于管理 OpenCode 配置的桌面应用工具，支持多 Provider、MCP 服务器、技能 (Skills)、规则 (Rule) 的统一管理，以及配置的备份与恢复。
 
 ## 技术栈
 
@@ -128,14 +128,14 @@ src-tauri/src/
 主管理器，协调各子管理器：
 ```rust
 pub struct ConfigManager {
-    global_config_file: PathBuf,           // ~/.Open Switch/config.json
+    global_config_file: PathBuf,           // ~/.Ai Switch/config.json
     opencode_manager: OpenCodeConfigManager,
     mcp_manager: McpConfigManager,
 }
 ```
 
 **职责**:
-- 读写全局配置 `~/.Open Switch/config.json`
+- 读写全局配置 `~/.Ai Switch/config.json`
 - 提供 `opencode()` 和 `mcp()` 访问子管理器
 - 管理配置应用 (项目/全局)
 
@@ -145,7 +145,7 @@ pub struct ConfigManager {
 **职责**:
 - 管理 Provider 和 Model 配置
 - 同步配置到 OpenCode 全局/项目
-- 配置文件: `~/.Open Switch/opencode.json`
+- 配置文件: `~/.Ai Switch/opencode.json`
 
 ### McpConfigManager
 文件: `src-tauri/src/config/mcp_manager.rs`
@@ -268,15 +268,15 @@ interface State {
 ## 配置文件说明
 
 ### 配置层级
-1. **应用配置**: `~/.Open Switch/` - Open Switch 内部配置
+1. **应用配置**: `~/.Ai Switch/` - Ai Switch 内部配置
 2. **项目配置**: `./.opencode/opencode.json` - 作用于当前项目
 3. **全局配置**: `~/.config/opencode/` - 作用于所有项目
 
 项目配置优先于全局配置。
 
-### Open Switch 内部配置结构
+### Ai Switch 内部配置结构
 ```
-~/.Open Switch/
+~/.Ai Switch/
 ├── config.json          # 全局配置 (激活状态等)
 ├── opencode.json        # Provider/Model 配置存储
 └── mcp/                 # MCP 服务器配置
@@ -313,7 +313,7 @@ interface State {
 {
   "version": "1.0.0",
   "created_at": "2025-01-20T00:00:00Z",
-  "app_name": "Open Switch",
+  "app_name": "Ai Switch",
   "providers": [...],
   "mcp_servers": [...],
   "rules": [...],

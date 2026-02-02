@@ -184,7 +184,7 @@ async function handleExport() {
     
     // 选择保存路径
     const filePath = await save({
-      defaultPath: `openswitch-backup-${new Date().toISOString().split('T')[0]}.json`,
+      defaultPath: `aiswitch-backup-${new Date().toISOString().split('T')[0]}.json`,
       filters: [{ name: 'JSON', extensions: ['json'] }],
     })
     

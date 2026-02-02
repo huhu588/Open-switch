@@ -142,7 +142,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             // 单实例模式：当第二个实例启动时，将参数传递给第一个实例
             // 这对于深链接很重要，因为 Windows/Linux 上深链接会启动新进程
-            if let Some(url) = argv.iter().find(|arg| arg.starts_with("openswitch://")) {
+            if let Some(url) = argv.iter().find(|arg| arg.starts_with("aiswitch://")) {
                 let _ = app.emit("deep-link-received", url.clone());
             }
             // 聚焦主窗口
