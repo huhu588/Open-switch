@@ -1,6 +1,6 @@
 # Ai Switch
 
-> OpenCode 配置管理工具 | v1.4.28
+> OpenCode 配置管理工具 | v1.4.29
 
 一个现代化的桌面应用，用于管理 OpenCode 的 Provider、Model、MCP 服务器、技能和规则配置。
 
@@ -106,12 +106,12 @@ GitHub Actions 会自动生成 `latest.json`，其格式必须正确：
 ```json
 {
   "version": "1.4.28",
-  "notes": "Open Switch v1.4.28 发布",
+  "notes": "Ai Switch v1.4.28 发布",
   "pub_date": "2026-02-02T03:57:16Z",
   "platforms": {
     "windows-x86_64": {
       "signature": "签名内容（不能为空）",
-      "url": "https://github.com/huhu588/Open-switch/releases/download/v1.4.28/Open.Switch_1.4.28_x64-setup.exe"
+      "url": "https://github.com/huhu588/Ai-Switch/releases/download/v1.4.29/Ai.Switch_1.4.29_x64-setup.exe"
     }
   }
 }
@@ -120,11 +120,11 @@ GitHub Actions 会自动生成 `latest.json`，其格式必须正确：
 **检查要点**：
 - `signature` 字段不能为空
 - `url` 中的文件名必须与实际上传的文件名完全一致
-- 文件名中的空格会被 GitHub 转换为点号（`Open Switch` → `Open.Switch`）
+- 文件名中的空格会被 GitHub 转换为点号（`Ai Switch` → `Ai.Switch`）
 
 ### 4. 下载 URL 文件名格式
 
-Tauri 生成的安装包文件名格式：`Open Switch_X.Y.Z_x64-setup.exe`（带空格）
+Tauri 生成的安装包文件名格式：`Ai Switch_X.Y.Z_x64-setup.exe`（带空格）
 
 但 GitHub Release 会将空格转换为点号：`Open.Switch_X.Y.Z_x64-setup.exe`
 
@@ -142,7 +142,7 @@ EXENAME=$(echo "$EXENAME" | sed 's/ /./g')
 - 如果 Release 是 draft 状态，用户将无法检测到更新
 
 **检查方法**：
-1. 访问 https://github.com/huhu588/Open-switch/releases
+1. 访问 https://github.com/huhu588/Ai-Switch/releases
 2. 确认最新版本不是 "Draft" 状态
 3. 确认 `latest.json` 文件已包含在 Release assets 中
 
@@ -155,7 +155,7 @@ EXENAME=$(echo "$EXENAME" | sed 's/ /./g')
   "updater": {
     "pubkey": "公钥内容",
     "endpoints": [
-      "https://github.com/huhu588/Open-switch/releases/latest/download/latest.json"
+      "https://github.com/huhu588/Ai-Switch/releases/latest/download/latest.json"
     ]
   }
 }
@@ -164,7 +164,7 @@ EXENAME=$(echo "$EXENAME" | sed 's/ /./g')
 **注意事项**：
 - `pubkey` 必须与签名私钥匹配
 - `endpoints` URL 必须正确指向 GitHub releases
-- 仓库名称区分大小写（`Open-switch` 不是 `open-switch`）
+- 仓库名称区分大小写（`Ai-Switch` 不是 `ai-switch`）
 
 ### 7. 构建产物检查清单
 
@@ -214,8 +214,8 @@ git push origin vX.Y.Z
 
 ```toml
 [package]
-name = "open-switch"
-version = "1.4.28"      # 必须与其他文件同步
+name = "ai-switch"
+version = "1.4.29"      # 必须与其他文件同步
 edition = "2021"        # 只能是 2015/2018/2021/2024，不能用未来年份！
 ```
 
@@ -243,7 +243,7 @@ edition = "2021"        # 只能是 2015/2018/2021/2024，不能用未来年份�
 - 使用 **Universal Binary** 同时支持 Intel (x86_64) 和 Apple Silicon (aarch64)
 - 需要添加两个 Rust targets：`aarch64-apple-darwin` 和 `x86_64-apple-darwin`
 - `.tar.gz` 用于自动更新，`.dmg` 用于手动安装
-- 未签名应用首次运行需要用户手动允许：`xattr -cr "/Applications/Open Switch.app"`
+- 未签名应用首次运行需要用户手动允许：`xattr -cr "/Applications/Ai Switch.app"`
 
 **latest.json 平台标识**：
 ```json
@@ -291,7 +291,7 @@ GitHub Actions 中使用的版本：
 
 | 问题 | 可能原因 | 解决方案 |
 |------|----------|----------|
-| "应用已损坏" | 未签名应用被 Gatekeeper 阻止 | 执行 `xattr -cr "/Applications/Open Switch.app"` |
+| "应用已损坏" | 未签名应用被 Gatekeeper 阻止 | 执行 `xattr -cr "/Applications/Ai Switch.app"` |
 | macOS 检测不到更新 | latest.json 缺少 darwin 平台 | 确保构建生成了 .tar.gz.sig 文件 |
 | Universal Binary 构建失败 | 缺少 Rust targets | 执行 `rustup target add aarch64-apple-darwin x86_64-apple-darwin` |
 | .tar.gz 文件未生成 | 使用了 `--bundles dmg` | 移除该参数，让 Tauri 生成默认 bundle |
@@ -302,7 +302,7 @@ GitHub Actions 中使用的版本：
 
 ```powershell
 # PowerShell
-Invoke-RestMethod "https://github.com/huhu588/Open-switch/releases/latest/download/latest.json"
+Invoke-RestMethod "https://github.com/huhu588/Ai-Switch/releases/latest/download/latest.json"
 
 # 或检查下载 URL 是否有效（应返回 200）
 (Invoke-WebRequest -Uri "下载URL" -Method Head).StatusCode

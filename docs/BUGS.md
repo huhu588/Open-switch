@@ -1,4 +1,4 @@
-# Open Switch Bug 跟踪
+# Ai Switch Bug 跟踪
 
 **项目版本**: v1.4.0
 

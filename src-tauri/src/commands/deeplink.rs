@@ -1,5 +1,5 @@
 // 深链接命令模块
-// 处理 openswitch:// 协议的深链接，用于一键配置 Provider
+// 处理 aiswitch:// 协议的深链接，用于一键配置 Provider
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -45,7 +45,7 @@ pub struct ParsedDeepLink {
 /// 解析深链接 URL
 /// 
 /// 支持的 URL 格式：
-/// openswitch://add-provider?name=xxx&api_key=xxx&base_url=xxx&model_type=openai&models=model1,model2&description=xxx
+/// aiswitch://add-provider?name=xxx&api_key=xxx&base_url=xxx&model_type=openai&models=model1,model2&description=xxx
 /// 
 /// 参数说明：
 /// - name: 服务商名称 (必需)
@@ -69,11 +69,11 @@ pub fn parse_deep_link(url: String) -> ParsedDeepLink {
     };
 
     // 检查 scheme
-    if parsed.scheme() != "openswitch" {
+    if parsed.scheme() != "aiswitch" {
         return ParsedDeepLink {
             action: "error".to_string(),
             provider: None,
-            error: Some("不支持的协议，请使用 openswitch://".to_string()),
+            error: Some("不支持的协议，请使用 aiswitch://".to_string()),
         };
     }
 
@@ -185,7 +185,7 @@ pub fn generate_deep_link(
     description: Option<String>,
 ) -> String {
     let mut url = format!(
-        "openswitch://add-provider?name={}&api_key={}&base_url={}&model_type={}",
+        "aiswitch://add-provider?name={}&api_key={}&base_url={}&model_type={}",
         urlencoding::encode(&name),
         urlencoding::encode(&api_key),
         urlencoding::encode(&base_url),

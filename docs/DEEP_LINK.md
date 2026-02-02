@@ -1,13 +1,13 @@
-# Open Switch 深链接配置指南
+# Ai Switch 深链接配置指南
 
-> 版本: v1.4.0 | 协议: `openswitch://`
+> 版本: v1.4.0 | 协议: `aiswitch://`
 
-通过深链接让用户一键配置 Provider 到 Open Switch 应用。
+通过深链接让用户一键配置 Provider 到 Ai Switch 应用。
 
 ## URL 格式
 
 ```
-openswitch://add-provider?name=<名称>&api_key=<密钥>&base_url=<地址>&model_type=<协议>&models=<模型列表>&description=<描述>
+aiswitch://add-provider?name=<名称>&api_key=<密钥>&base_url=<地址>&model_type=<协议>&models=<模型列表>&description=<描述>
 ```
 
 ## 参数说明
@@ -45,12 +45,12 @@ openswitch://add-provider?name=<名称>&api_key=<密钥>&base_url=<地址>&model
 
 **基础配置：**
 ```
-openswitch://add-provider?name=MyAPI&api_key=sk-123&base_url=https%3A%2F%2Fapi.example.com%2Fv1&model_type=openai
+aiswitch://add-provider?name=MyAPI&api_key=sk-123&base_url=https%3A%2F%2Fapi.example.com%2Fv1&model_type=openai
 ```
 
 **带模型列表：**
 ```
-openswitch://add-provider?name=i7%20Claude&api_key=i7-relay-8888&base_url=https%3A%2F%2Fi7dc.com%2Fapi&model_type=claude&models=claude-4.5-opus,claude-4.5-sonnet
+aiswitch://add-provider?name=i7%20Claude&api_key=i7-relay-8888&base_url=https%3A%2F%2Fi7dc.com%2Fapi&model_type=claude&models=claude-4.5-opus,claude-4.5-sonnet
 ```
 
 ## 网页集成
@@ -58,16 +58,16 @@ openswitch://add-provider?name=i7%20Claude&api_key=i7-relay-8888&base_url=https%
 ### HTML 按钮
 
 ```html
-<a href="openswitch://add-provider?name=MyAPI&api_key=YOUR_KEY&base_url=https%3A%2F%2Fapi.example.com%2Fv1&model_type=openai" 
+<a href="aiswitch://add-provider?name=MyAPI&api_key=YOUR_KEY&base_url=https%3A%2F%2Fapi.example.com%2Fv1&model_type=openai" 
    style="display:inline-block;padding:12px 24px;background:linear-gradient(135deg,#f59e0b,#d97706);color:white;text-decoration:none;border-radius:8px;font-weight:bold;">
-  🚀 一键配置到 Open Switch
+  🚀 一键配置到 Ai Switch
 </a>
 ```
 
 ### JavaScript
 
 ```javascript
-function generateOpenSwitchLink(config) {
+function generateAiSwitchLink(config) {
   const params = new URLSearchParams({
     name: config.name,
     api_key: config.apiKey,
@@ -76,14 +76,14 @@ function generateOpenSwitchLink(config) {
   });
   if (config.models?.length) params.set('models', config.models.join(','));
   if (config.description) params.set('description', config.description);
-  return `openswitch://add-provider?${params.toString()}`;
+  return `aiswitch://add-provider?${params.toString()}`;
 }
 ```
 
 ## 常见问题
 
 **Q: 点击没反应？**
-- 确保已安装 Open Switch
+- 确保已安装 Ai Switch
 - Windows/Linux 需运行一次应用以注册协议
 - 检查浏览器是否阻止协议跳转
 

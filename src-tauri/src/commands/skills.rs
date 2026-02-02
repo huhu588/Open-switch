@@ -354,7 +354,7 @@ pub async fn fetch_skills_from_repo(repo_id: String) -> Result<Vec<RecommendedSk
     
     // 尝试获取 index.json
     let response = client.get(&repo.index_url)
-        .header("User-Agent", "Open-Switch/1.0")
+        .header("User-Agent", "Ai-Switch/1.0")
         .send()
         .await
         .map_err(|e| AppError::Custom(format!("请求失败: {}", e)))?;
@@ -408,7 +408,7 @@ async fn detect_default_branch(client: &reqwest::Client, owner: &str, repo_name:
     let api_url = format!("https://api.github.com/repos/{}/{}", owner, repo_name);
     
     if let Ok(response) = client.get(&api_url)
-        .header("User-Agent", "Open-Switch/1.0")
+        .header("User-Agent", "Ai-Switch/1.0")
         .header("Accept", "application/vnd.github.v3+json")
         .send()
         .await
@@ -430,7 +430,7 @@ async fn detect_default_branch(client: &reqwest::Client, owner: &str, repo_name:
 /// 获取单个技能的描述
 async fn fetch_skill_description(client: &reqwest::Client, raw_url: &str) -> Option<String> {
     let response = client.get(raw_url)
-        .header("User-Agent", "Open-Switch/1.0")
+        .header("User-Agent", "Ai-Switch/1.0")
         .timeout(std::time::Duration::from_secs(5))
         .send()
         .await
@@ -464,7 +464,7 @@ async fn fetch_skills_by_scanning(client: &reqwest::Client, repo: &SkillsReposit
         );
         
         let response = match client.get(&api_url)
-            .header("User-Agent", "Open-Switch/1.0")
+            .header("User-Agent", "Ai-Switch/1.0")
             .header("Accept", "application/vnd.github.v3+json")
             .send()
             .await {
@@ -1064,7 +1064,7 @@ pub async fn install_skills(input: InstallSkillsInput) -> Result<InstallSkillsRe
     
     let client = reqwest::Client::new();
     let response = match client.get(&input.raw_url)
-        .header("User-Agent", "Open-Switch/1.0")
+        .header("User-Agent", "Ai-Switch/1.0")
         .send()
         .await
     {

@@ -1003,10 +1003,25 @@ pub async fn delete_cc_switch_provider(name: String, source: String) -> Result<(
         .or_else(|_| std::env::var("USERPROFILE"))
         .map_err(|_| "无法获取用户目录".to_string())?;
     
-    // 从名称中提取原始名称（去掉 "(cc-switch)" 后缀）
-    let original_name = name
-        .trim_end_matches(" (cc-switch)")
-        .to_string();
+    // 从名称中提取原始名称
+    // 名称可能的格式：
+    // - "Name (cc-switch)" -> "Name"
+    // - "Name (cc-switch) (App1 App2)" -> "Name"
+    // - "Name (App1) (cc-switch)" -> "Name"
+    let original_name = {
+        let mut n = name.clone();
+        // 先去掉末尾的应用标签，如 " (OpenCode Claude)"
+        if let Some(pos) = n.rfind(" (cc-switch)") {
+            // 如果 "(cc-switch)" 后面还有内容，说明有应用标签
+            let after_cc = &n[pos + 12..];
+            if !after_cc.is_empty() {
+                // 去掉应用标签
+                n = n[..pos + 12].to_string();
+            }
+        }
+        // 去掉 " (cc-switch)" 后缀
+        n.trim_end_matches(" (cc-switch)").to_string()
+    };
     
     // 如果来源是 SQLite 数据库
     if source.starts_with("cc_switch_db_") {

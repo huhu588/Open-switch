@@ -107,7 +107,7 @@ export default {
     noModels: 'モデルなし',
     // Ai Switch 統一設定
     saveToOpenSwitch: 'Ai Switch 統一設定に保存',
-    saveToOpenSwitchDesc: '設定を ~/.open-switch/config.json に保存し、ツール間で共有できます'
+    saveToOpenSwitchDesc: '設定を ~/.ai-switch/config.json に保存し、ツール間で共有できます'
   },
 
   // Model related

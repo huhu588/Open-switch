@@ -1,5 +1,5 @@
 // Ai Switch 统一配置命令
-// 管理 ~/.open-switch/config.json
+// 管理 ~/.ai-switch/config.json
 
 use serde::{Deserialize, Serialize};
 use crate::config::open_switch_manager::{

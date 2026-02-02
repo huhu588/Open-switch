@@ -107,7 +107,7 @@ export default {
     noModels: 'No models',
     // Ai Switch unified config
     saveToOpenSwitch: 'Save to Ai Switch Unified Config',
-    saveToOpenSwitchDesc: 'Save configuration to ~/.open-switch/config.json for cross-tool sharing'
+    saveToOpenSwitchDesc: 'Save configuration to ~/.ai-switch/config.json for cross-tool sharing'
   },
 
   // Model related
