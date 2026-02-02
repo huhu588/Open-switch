@@ -1,6 +1,6 @@
 [package]
 name = "ai-switch"
-version = "1.4.29"
+version = "1.5.0"
 edition = "2021"
 description = "Ai Switch工具"
 authors = ["moguw <weiyiding0@gmail.com>"]

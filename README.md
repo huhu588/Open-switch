@@ -1,6 +1,6 @@
 # Ai Switch
 
-> OpenCode 配置管理工具 | v1.4.29
+> OpenCode 配置管理工具 | v1.5.0
 
 一个现代化的桌面应用，用于管理 OpenCode 的 Provider、Model、MCP 服务器、技能和规则配置。
 
@@ -111,7 +111,7 @@ GitHub Actions 会自动生成 `latest.json`，其格式必须正确：
   "platforms": {
     "windows-x86_64": {
       "signature": "签名内容（不能为空）",
-      "url": "https://github.com/huhu588/Ai-Switch/releases/download/v1.4.29/Ai.Switch_1.4.29_x64-setup.exe"
+      "url": "https://github.com/huhu588/Ai-Switch/releases/download/v1.5.0/Ai.Switch_1.5.0_x64-setup.exe"
     }
   }
 }
@@ -215,7 +215,7 @@ git push origin vX.Y.Z
 ```toml
 [package]
 name = "ai-switch"
-version = "1.4.29"      # 必须与其他文件同步
+version = "1.5.0"      # 必须与其他文件同步
 edition = "2021"        # 只能是 2015/2018/2021/2024，不能用未来年份！
 ```
 
