@@ -36,6 +36,8 @@ fn get_paths() -> HashMap<String, PathBuf> {
         paths.insert("global_opencode".to_string(), home.join(".config").join("opencode"));
         // 全局 Claude 配置
         paths.insert("global_claude".to_string(), home.join(".claude"));
+        // 全局 Cursor 配置
+        paths.insert("global_cursor".to_string(), home.join(".cursor"));
     }
     
     // 项目级配置（当前目录）
@@ -92,12 +94,15 @@ pub fn get_installed_rules() -> Vec<InstalledRule> {
     
     for (location_key, filename) in agents_locations.iter() {
         if let Some(base_path) = paths.get(*location_key) {
+            // 提取不带扩展名的名称（AGENTS.md -> AGENTS）
+            let name = filename.trim_end_matches(".md").to_string();
+            
             // 检查启用的文件
             let file_path = base_path.join(filename);
             if file_path.exists() {
                 if let Ok(content) = fs::read_to_string(&file_path) {
                     rules.push(InstalledRule {
-                        name: "AGENTS.md".to_string(),
+                        name: name.clone(),
                         location: location_key.to_string(),
                         path: file_path.to_string_lossy().to_string(),
                         description: parse_rule_description(&content),
@@ -112,7 +117,7 @@ pub fn get_installed_rules() -> Vec<InstalledRule> {
             if disabled_path.exists() {
                 if let Ok(content) = fs::read_to_string(&disabled_path) {
                     rules.push(InstalledRule {
-                        name: "AGENTS.md".to_string(),
+                        name: name.clone(),
                         location: location_key.to_string(),
                         path: disabled_path.to_string_lossy().to_string(),
                         description: parse_rule_description(&content),
@@ -230,6 +235,49 @@ pub fn get_installed_rules() -> Vec<InstalledRule> {
                                         }
                                     }
                                 }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // 检查 Cursor rules 目录
+    if let Some(base_path) = paths.get("global_cursor") {
+        let rules_path = base_path.join("rules");
+        if rules_path.is_dir() {
+            if let Ok(entries) = fs::read_dir(&rules_path) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_file() {
+                        let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+                        
+                        // 检查是否为禁用文件
+                        let is_disabled = file_name.ends_with(".md.disabled") || file_name.ends_with(".mdc.disabled");
+                        let is_enabled_md = (ext == "md" || ext == "mdc") && !file_name.ends_with(".disabled");
+                        
+                        if is_enabled_md || is_disabled {
+                            if let Ok(content) = fs::read_to_string(&path) {
+                                let name = if is_disabled {
+                                    let base_name = file_name.trim_end_matches(".disabled");
+                                    base_name.trim_end_matches(".md").trim_end_matches(".mdc").to_string()
+                                } else {
+                                    path.file_stem()
+                                        .and_then(|n| n.to_str())
+                                        .unwrap_or("unknown")
+                                        .to_string()
+                                };
+                                
+                                rules.push(InstalledRule {
+                                    name,
+                                    location: "global_cursor".to_string(),
+                                    path: path.to_string_lossy().to_string(),
+                                    description: parse_rule_description(&content),
+                                    rule_type: "cursor_rules".to_string(),
+                                    enabled: !is_disabled,
+                                });
                             }
                         }
                     }
@@ -588,6 +636,11 @@ pub fn install_rule(rule_id: String, content: String, location: String) -> Resul
                 .ok_or("无法获取项目 Claude 配置路径")?;
             base.join("rules").join(&file_name)
         }
+        "global_cursor" => {
+            let base = paths.get("global_cursor")
+                .ok_or("无法获取全局 Cursor 配置路径")?;
+            base.join("rules").join(&file_name)
+        }
         _ => return Err(format!("不支持的安装位置: {}", location)),
     };
     
@@ -669,4 +722,224 @@ pub fn toggle_rule_enabled(path: String, enabled: bool) -> Result<String, String
         .map_err(|e| format!("切换规则状态失败: {}", e))?;
     
     Ok(new_path.to_string_lossy().to_string())
+}
+
+// ============================================================================
+// 规则多应用统一管理
+// ============================================================================
+
+/// 聚合的规则管理信息
+#[derive(Debug, Clone, Serialize)]
+pub struct ManagedRule {
+    pub name: String,
+    pub description: String,
+    pub content: String,
+    pub rule_type: String,
+    // 各应用部署状态
+    pub opencode_enabled: bool,
+    pub claude_enabled: bool,
+    pub codex_enabled: bool,
+    pub gemini_enabled: bool,
+    pub cursor_enabled: bool,
+    // 源路径（用于读取内容）
+    pub source_path: Option<String>,
+}
+
+/// 规则统计信息
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct RuleStats {
+    pub opencode_count: usize,
+    pub claude_count: usize,
+    pub codex_count: usize,
+    pub gemini_count: usize,
+    pub cursor_count: usize,
+}
+
+/// 获取各应用的规则目录
+fn get_app_rules_paths() -> HashMap<String, PathBuf> {
+    let mut paths = HashMap::new();
+    
+    if let Some(home) = dirs::home_dir() {
+        // OpenCode
+        paths.insert("opencode".to_string(), home.join(".config").join("opencode").join("rules"));
+        // Claude Code
+        paths.insert("claude".to_string(), home.join(".claude").join("rules"));
+        // Codex
+        paths.insert("codex".to_string(), home.join(".codex").join("rules"));
+        // Gemini
+        paths.insert("gemini".to_string(), home.join(".gemini").join("rules"));
+        // Cursor
+        paths.insert("cursor".to_string(), home.join(".cursor").join("rules"));
+    }
+    
+    paths
+}
+
+/// 扫描目录中的规则文件
+fn scan_rules_in_dir(dir: &PathBuf) -> Vec<String> {
+    let mut rules = Vec::new();
+    
+    if !dir.is_dir() {
+        return rules;
+    }
+    
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() {
+                let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+                
+                // 只统计启用的规则
+                if (ext == "md" || ext == "mdc") && !file_name.ends_with(".disabled") {
+                    if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                        rules.push(stem.to_string());
+                    }
+                }
+            }
+        }
+    }
+    
+    rules
+}
+
+/// 获取所有管理的规则（聚合各应用的状态）
+#[tauri::command]
+pub fn get_managed_rules() -> Vec<ManagedRule> {
+    use std::collections::HashSet;
+    
+    let app_paths = get_app_rules_paths();
+    let mut all_rule_names: HashSet<String> = HashSet::new();
+    let mut managed_rules: HashMap<String, ManagedRule> = HashMap::new();
+    
+    // 收集所有规则名称和内容
+    for (app, dir) in &app_paths {
+        if !dir.is_dir() {
+            continue;
+        }
+        
+        if let Ok(entries) = fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() {
+                    let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+                    
+                    if (ext == "md" || ext == "mdc") && !file_name.ends_with(".disabled") {
+                        if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                            let name = stem.to_string();
+                            all_rule_names.insert(name.clone());
+                            
+                            // 如果还没有这个规则的记录，创建一个
+                            if !managed_rules.contains_key(&name) {
+                                let content = fs::read_to_string(&path).unwrap_or_default();
+                                let description = parse_rule_description(&content);
+                                
+                                managed_rules.insert(name.clone(), ManagedRule {
+                                    name: name.clone(),
+                                    description,
+                                    content: content.clone(),
+                                    rule_type: "rules_dir".to_string(),
+                                    opencode_enabled: false,
+                                    claude_enabled: false,
+                                    codex_enabled: false,
+                                    gemini_enabled: false,
+                                    cursor_enabled: false,
+                                    source_path: Some(path.to_string_lossy().to_string()),
+                                });
+                            }
+                            
+                            // 标记在此应用启用
+                            if let Some(rule) = managed_rules.get_mut(&name) {
+                                match app.as_str() {
+                                    "opencode" => rule.opencode_enabled = true,
+                                    "claude" => rule.claude_enabled = true,
+                                    "codex" => rule.codex_enabled = true,
+                                    "gemini" => rule.gemini_enabled = true,
+                                    "cursor" => rule.cursor_enabled = true,
+                                    _ => {}
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    let mut result: Vec<ManagedRule> = managed_rules.into_values().collect();
+    result.sort_by(|a, b| a.name.cmp(&b.name));
+    
+    result
+}
+
+/// 获取规则统计信息
+#[tauri::command]
+pub fn get_rule_stats() -> RuleStats {
+    let app_paths = get_app_rules_paths();
+    let mut stats = RuleStats::default();
+    
+    for (app, dir) in &app_paths {
+        let count = scan_rules_in_dir(dir).len();
+        match app.as_str() {
+            "opencode" => stats.opencode_count = count,
+            "claude" => stats.claude_count = count,
+            "codex" => stats.codex_count = count,
+            "gemini" => stats.gemini_count = count,
+            "cursor" => stats.cursor_count = count,
+            _ => {}
+        }
+    }
+    
+    stats
+}
+
+/// 切换规则在某个应用上的启用状态
+#[tauri::command]
+pub fn toggle_rule_app(rule_name: String, app: String, enabled: bool, content: String) -> Result<(), String> {
+    let app_paths = get_app_rules_paths();
+    
+    let target_dir = app_paths.get(&app)
+        .ok_or_else(|| format!("不支持的应用: {}", app))?;
+    
+    let target_path = target_dir.join(format!("{}.md", rule_name));
+    
+    if enabled {
+        // 创建目录
+        if let Some(parent) = target_path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|e| format!("创建目录失败: {}", e))?;
+        }
+        // 写入规则文件
+        fs::write(&target_path, &content)
+            .map_err(|e| format!("写入规则失败: {}", e))?;
+    } else {
+        // 删除规则文件
+        if target_path.exists() {
+            fs::remove_file(&target_path)
+                .map_err(|e| format!("删除规则失败: {}", e))?;
+        }
+    }
+    
+    Ok(())
+}
+
+/// 从所有应用中删除规则
+#[tauri::command]
+pub fn delete_rule_from_all(rule_name: String) -> Result<(), String> {
+    let app_paths = get_app_rules_paths();
+    
+    for (_app, dir) in &app_paths {
+        let target_path = dir.join(format!("{}.md", rule_name));
+        if target_path.exists() {
+            let _ = fs::remove_file(&target_path);
+        }
+        // 也删除禁用的版本
+        let disabled_path = dir.join(format!("{}.md.disabled", rule_name));
+        if disabled_path.exists() {
+            let _ = fs::remove_file(&disabled_path);
+        }
+    }
+    
+    Ok(())
 }

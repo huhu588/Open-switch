@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed, watch, onUnmounted } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
+import { listen } from '@tauri-apps/api/event'
 import { useI18n } from 'vue-i18n'
 import SvgIcon from '@/components/SvgIcon.vue'
 
@@ -62,6 +63,10 @@ interface ProviderStats {
   providerName: string
   requestCount: number
   totalTokens: number
+  totalInputTokens: number
+  totalOutputTokens: number
+  totalCacheCreationTokens: number
+  totalCacheReadTokens: number
   totalCost: string
   successRate: number
 }
@@ -79,7 +84,26 @@ interface ScanResult {
   opencodeFiles: number
   opencodeEntries: number
   opencodePath: string | null
+  cursorFiles: number
+  cursorEntries: number
+  cursorPath: string | null
   existingRecords: number
+}
+
+interface CursorConversationStats {
+  totalConversations: number
+  totalMessages: number
+  toolCalls: number
+  filesChanged: number
+  codeBlocks: number
+  diffCount: number
+  linesAdded: number
+  linesDeleted: number
+  toolCallDetails: Record<string, number>
+  mcpCount: number
+  responseTimeMs: number
+  thinkingTimeMs: number
+  totalDurationMs: number
 }
 
 interface LocalLogImportResult {
@@ -87,6 +111,14 @@ interface LocalLogImportResult {
   skipped: number
   failed: number
   total: number
+}
+
+interface LocalLogProgress {
+  phase: 'scan' | 'import' | 'done'
+  source: string
+  current: number
+  total: number
+  message: string
 }
 
 interface ModelPricing {
@@ -108,6 +140,27 @@ interface ProviderModelPricing {
   cacheCreationCostPerMillion: string
 }
 
+// 会话统计汇总
+interface SessionStatsSummary {
+  totalConversations: number
+  totalToolCalls: number
+  totalFilesChanged: number
+  totalLinesAdded: number
+  totalLinesDeleted: number
+  totalResponseTimeMs: number
+  totalThinkingTimeMs: number
+  avgResponseTimeMs: number
+  avgThinkingTimeMs: number
+  sessionCount: number
+}
+
+// 工具调用统计
+interface ToolCallStats {
+  toolName: string
+  callCount: number
+  percentage: number
+}
+
 const loading = ref(false)
 const period = ref<'24h' | '7d' | '30d' | 'all'>('30d')
 const summary = ref<UsageSummary | null>(null)
@@ -127,10 +180,16 @@ const scanning = ref(false)
 const importing = ref(false)
 const scanResult = ref<ScanResult | null>(null)
 const importResult = ref<LocalLogImportResult | null>(null)
+const localLogProgress = ref<LocalLogProgress | null>(null)
+let unlistenLocalLogProgress: (() => void) | null = null
 const importClaude = ref(true)
 const importCodex = ref(true)
 const importGemini = ref(true)
 const importOpencode = ref(true)
+const importCursor = ref(true)
+
+// Cursor 对话统计
+const cursorConversationStats = ref<CursorConversationStats | null>(null)
 
 // 日志保留设置
 const logRetention = ref<'permanent' | 'days30'>('permanent')
@@ -140,8 +199,19 @@ const autoImport = ref(true)
 const lastAutoImport = ref<number>(0) // 上次自动导入的时间戳
 const autoImportResult = ref<{ imported: number; time: number } | null>(null)
 
+const progressText = computed(() => {
+  const p = localLogProgress.value
+  if (!p) return ''
+  const suffix = p.total > 0 ? `(${p.current}/${p.total})` : ''
+  return suffix ? `${p.message} ${suffix}` : p.message
+})
+
 // 服务商筛选
-const selectedProvider = ref<'all' | 'claude' | 'codex' | 'gemini' | 'opencode'>('all')
+const selectedProvider = ref<'all' | 'claude' | 'codex' | 'gemini' | 'opencode' | 'cursor'>('all')
+
+// Token tooltip 状态
+const showTokenTooltip = ref(false)
+let tokenTooltipTimer: ReturnType<typeof setTimeout> | null = null
 
 // 模型定价相关状态
 const showPricingDialog = ref(false)
@@ -155,6 +225,17 @@ const selectedPricingProvider = ref<string>('')
 const providerPricingList = ref<ProviderModelPricing[]>([])
 const editingProviderPricing = ref<ProviderModelPricing | null>(null)
 const newProviderPricing = ref<ProviderModelPricing | null>(null)
+
+// 会话统计和工具调用统计
+const sessionStats = ref<SessionStatsSummary | null>(null)
+const toolCallStats = ref<ToolCallStats[]>([])
+const loadingSessionStats = ref(false)
+const toolStatsCollapsed = ref(false)
+const toolStatsExpanded = ref(false)
+const toolStatsDefaultCount = 5 // 默认显示的工具数量
+
+// 模型图例展开状态
+const modelLegendExpanded = ref(false)
 
 let statusInterval: number | null = null
 
@@ -294,11 +375,111 @@ const filteredProviderStats = computed(() => {
     'codex': ['codex_local', 'Codex CLI (Local)'],
     'gemini': ['gemini_local', 'Gemini CLI (Local)'],
     'opencode': ['opencode_local', 'Opencode (Local)'],
+    'cursor': ['cursor_local', 'Cursor (Local)'],
   }
   const targetIds = providerMap[selectedProvider.value] || []
   return providerStats.value.filter(s => 
     targetIds.includes(s.providerId) || targetIds.includes(s.providerName)
   )
+})
+
+// 根据服务商筛选计算汇总数据
+const filteredSummary = computed(() => {
+  // 如果选择全部，使用原始 summary
+  if (selectedProvider.value === 'all') {
+    return summary.value
+  }
+  
+  // 从 filteredProviderStats 计算汇总（使用真实数据，不再用比例估算）
+  const stats = filteredProviderStats.value
+  if (stats.length === 0) {
+    return {
+      totalRequests: 0,
+      totalCost: '0',
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalCacheCreationTokens: 0,
+      totalCacheReadTokens: 0,
+      successRate: 0,
+    }
+  }
+  
+  let totalRequests = 0
+  let totalCost = 0
+  let totalInputTokens = 0
+  let totalOutputTokens = 0
+  let totalCacheCreationTokens = 0
+  let totalCacheReadTokens = 0
+  let successSum = 0
+  
+  for (const stat of stats) {
+    totalRequests += stat.requestCount
+    totalCost += typeof stat.totalCost === 'string' ? parseFloat(stat.totalCost) : stat.totalCost
+    totalInputTokens += stat.totalInputTokens || 0
+    totalOutputTokens += stat.totalOutputTokens || 0
+    totalCacheCreationTokens += stat.totalCacheCreationTokens || 0
+    totalCacheReadTokens += stat.totalCacheReadTokens || 0
+    successSum += (stat.successRate || 0) * stat.requestCount
+  }
+  
+  const successRate = totalRequests > 0 ? successSum / totalRequests : 100
+  
+  return {
+    totalRequests,
+    totalCost: totalCost.toString(),
+    totalInputTokens,
+    totalOutputTokens,
+    totalCacheCreationTokens,
+    totalCacheReadTokens,
+    successRate,
+  }
+})
+
+// 是否显示对话统计区块
+const showConversationStats = computed(() => {
+  if (selectedProvider.value === 'cursor') {
+    return cursorConversationStats.value && (
+      cursorConversationStats.value.totalConversations > 0 ||
+      cursorConversationStats.value.toolCalls > 0 ||
+      cursorConversationStats.value.codeBlocks > 0
+    )
+  }
+  return sessionStats.value && (
+    sessionStats.value.totalConversations > 0 ||
+    sessionStats.value.totalToolCalls > 0
+  )
+})
+
+// 统一的对话统计数据（根据服务商返回不同数据源）
+const conversationStatsData = computed(() => {
+  if (selectedProvider.value === 'cursor' && cursorConversationStats.value) {
+    return {
+      totalConversations: cursorConversationStats.value.totalConversations,
+      toolCalls: cursorConversationStats.value.toolCalls,
+      filesChanged: cursorConversationStats.value.filesChanged,
+      linesAdded: cursorConversationStats.value.linesAdded,
+      linesDeleted: cursorConversationStats.value.linesDeleted,
+      codeBlocks: cursorConversationStats.value.codeBlocks,
+    }
+  }
+  if (sessionStats.value) {
+    return {
+      totalConversations: sessionStats.value.totalConversations,
+      toolCalls: sessionStats.value.totalToolCalls,
+      filesChanged: sessionStats.value.totalFilesChanged,
+      linesAdded: sessionStats.value.totalLinesAdded,
+      linesDeleted: sessionStats.value.totalLinesDeleted,
+      codeBlocks: 0,
+    }
+  }
+  return {
+    totalConversations: 0,
+    toolCalls: 0,
+    filesChanged: 0,
+    linesAdded: 0,
+    linesDeleted: 0,
+    codeBlocks: 0,
+  }
 })
 
 // 供趋势查询使用的 provider_id
@@ -309,6 +490,7 @@ function getTrendProviderId(): string | null {
     'codex': 'codex_local',
     'gemini': 'gemini_local',
     'opencode': 'opencode_local',
+    'cursor': 'cursor_local',
   }
   return map[selectedProvider.value] || null
 }
@@ -342,6 +524,28 @@ function formatUptime(seconds: number): string {
     return `${minutes}m ${secs}s`
   }
   return `${secs}s`
+}
+
+// 格式化持续时间（毫秒转为小时）
+function formatDuration(ms: number): string {
+  if (ms === 0) return '0h'
+  const seconds = Math.floor(ms / 1000)
+  const minutes = Math.floor(seconds / 60)
+  const hours = Math.floor(minutes / 60)
+  const remainingMinutes = minutes % 60
+  
+  if (hours > 0) {
+    return `${hours}h ${remainingMinutes}m`
+  }
+  if (hours > 0) {
+    const remainingMinutes = minutes % 60
+    return `${hours}h ${remainingMinutes}m`
+  }
+  if (minutes > 0) {
+    const remainingSecs = seconds % 60
+    return `${minutes}m ${remainingSecs}s`
+  }
+  return `${seconds}s`
 }
 
 // 初始化代理服务
@@ -385,11 +589,77 @@ async function loadData() {
     trend.value = trendData
     modelTrend.value = modelTrendData
     providerStats.value = statsData
+    
+    // 同时加载会话统计和 Cursor 对话统计
+    await Promise.all([
+      loadSessionStats(),
+      loadCursorConversationStats(),
+    ])
   } catch (e) {
     console.error('加载使用统计失败:', e)
   } finally {
     loading.value = false
   }
+}
+
+// 加载 Cursor 对话统计
+async function loadCursorConversationStats() {
+  try {
+    cursorConversationStats.value = await invoke<CursorConversationStats>('get_cursor_conversation_stats')
+  } catch (e) {
+    console.error('加载 Cursor 对话统计失败:', e)
+    cursorConversationStats.value = null
+  }
+}
+
+// 加载会话统计和工具调用统计
+async function loadSessionStats() {
+  loadingSessionStats.value = true
+  try {
+    const providerId = getTrendProviderId()
+    const [statsData, toolData] = await Promise.all([
+      invoke<SessionStatsSummary>('get_session_stats_summary', { 
+        period: period.value,
+        providerId,
+      }),
+      invoke<ToolCallStats[]>('get_tool_call_stats', { 
+        period: period.value,
+        providerId,
+      }),
+    ])
+    sessionStats.value = statsData
+    toolCallStats.value = toolData
+  } catch (e) {
+    console.error('加载会话统计失败:', e)
+  } finally {
+    loadingSessionStats.value = false
+  }
+}
+
+// 格式化时间（毫秒转为人类可读格式）
+function formatTime(ms: number): string {
+  if (ms >= 3600000) {
+    const hours = Math.floor(ms / 3600000)
+    const minutes = Math.floor((ms % 3600000) / 60000)
+    return `${hours}h ${minutes}m`
+  }
+  if (ms >= 60000) {
+    const minutes = Math.floor(ms / 60000)
+    const seconds = Math.floor((ms % 60000) / 1000)
+    return `${minutes}m ${seconds}s`
+  }
+  if (ms >= 1000) {
+    return `${(ms / 1000).toFixed(1)}s`
+  }
+  return `${ms}ms`
+}
+
+// 格式化平均时间
+function formatAvgTime(ms: number): string {
+  if (ms >= 1000) {
+    return `${(ms / 1000).toFixed(1)}s`
+  }
+  return `${Math.round(ms)}ms`
 }
 
 // 启动代理
@@ -441,6 +711,10 @@ async function clearStats() {
   if (!confirm(t('usage.confirmClear'))) return
   try {
     await invoke('clear_proxy_usage_stats')
+    // 清除 Cursor 对话统计显示（Cursor 数据来自本地，清除后重新加载）
+    cursorConversationStats.value = null
+    sessionStats.value = null
+    toolCallStats.value = []
     await loadData()
   } catch (e) {
     console.error('清除统计失败:', e)
@@ -456,6 +730,7 @@ async function openImportDialog() {
 
 // 扫描本地日志
 async function scanLocalLogs() {
+  localLogProgress.value = null
   scanning.value = true
   try {
     scanResult.value = await invoke<ScanResult>('scan_local_logs')
@@ -473,9 +748,11 @@ async function importLocalLogs() {
   if (importCodex.value && scanResult.value?.codexFiles) sources.push('codex')
   if (importGemini.value && scanResult.value?.geminiFiles) sources.push('gemini')
   if (importOpencode.value && scanResult.value?.opencodeFiles) sources.push('opencode')
+  if (importCursor.value && scanResult.value?.cursorFiles) sources.push('cursor')
   
   if (sources.length === 0) return
   
+  localLogProgress.value = null
   importing.value = true
   try {
     importResult.value = await invoke<LocalLogImportResult>('import_local_logs', { sources })
@@ -507,6 +784,7 @@ function closeImportDialog() {
   showImportDialog.value = false
   scanResult.value = null
   importResult.value = null
+  localLogProgress.value = null
 }
 
 // 加载日志保留设置
@@ -771,6 +1049,10 @@ watch(selectedProvider, () => {
 })
 
 onMounted(async () => {
+  unlistenLocalLogProgress = await listen('local-log-progress', (event) => {
+    localLogProgress.value = event.payload as LocalLogProgress
+  })
+
   await initProxy()
   await loadLogRetention()
   await loadAutoImportSetting()
@@ -798,6 +1080,10 @@ onMounted(async () => {
 onUnmounted(() => {
   if (statusInterval) {
     clearInterval(statusInterval)
+  }
+  if (unlistenLocalLogProgress) {
+    unlistenLocalLogProgress()
+    unlistenLocalLogProgress = null
   }
 })
 </script>
@@ -939,9 +1225,9 @@ onUnmounted(() => {
             <SvgIcon name="activity" class="w-4 h-4 text-violet-500" />
           </div>
         </div>
-        <p class="text-2xl font-bold">{{ summary?.totalRequests || 0 }}</p>
+        <p class="text-2xl font-bold">{{ filteredSummary?.totalRequests || 0 }}</p>
         <p class="text-xs text-gray-500 mt-1">
-          {{ t('usage.successRate') }}: {{ (summary?.successRate || 0).toFixed(1) }}%
+          {{ t('usage.successRate') }}: {{ (filteredSummary?.successRate || 0).toFixed(1) }}%
         </p>
       </div>
 
@@ -953,39 +1239,70 @@ onUnmounted(() => {
             <span class="text-green-500 font-bold">$</span>
           </div>
         </div>
-        <p class="text-2xl font-bold">{{ formatCost(summary?.totalCost || 0) }}</p>
+        <p class="text-2xl font-bold">{{ formatCost(filteredSummary?.totalCost || 0) }}</p>
       </div>
 
-      <!-- 总 Token 数 -->
+      <!-- Token 数 -->
       <div class="p-4 rounded-xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
         <div class="flex items-center justify-between mb-2">
-          <span class="text-sm text-gray-500">{{ t('usage.totalTokens') }}</span>
+          <div class="flex items-center gap-1">
+            <!-- Cursor 显示文本Token数，其他显示总Token数 -->
+            <span class="text-sm text-gray-500">{{ selectedProvider === 'cursor' ? t('usage.textTokens') : t('usage.totalTokens') }}</span>
+            <!-- Cursor 时显示说明图标 -->
+            <span 
+              v-if="selectedProvider === 'cursor'" 
+              class="cursor-pointer relative"
+              @click="showTokenTooltip = !showTokenTooltip"
+              @mouseenter="tokenTooltipTimer = setTimeout(() => showTokenTooltip = true, 200)"
+              @mouseleave="clearTimeout(tokenTooltipTimer); showTokenTooltip = false"
+            >
+              <SvgIcon name="info" class="w-3.5 h-3.5 text-gray-400 hover:text-gray-600" />
+              <!-- Tooltip -->
+              <div 
+                v-show="showTokenTooltip"
+                class="absolute left-0 top-full mt-1 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg shadow-lg z-50 w-max max-w-[300px]"
+              >
+                {{ t('usage.cursorTokenTooltip') }}
+              </div>
+            </span>
+          </div>
           <div class="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center">
             <SvgIcon name="layers" class="w-4 h-4 text-blue-500" />
           </div>
         </div>
-        <p class="text-2xl font-bold">{{ formatTokens((summary?.totalInputTokens || 0) + (summary?.totalOutputTokens || 0)) }}</p>
+        <p class="text-2xl font-bold">{{ formatTokens((filteredSummary?.totalInputTokens || 0) + (filteredSummary?.totalOutputTokens || 0)) }}</p>
         <div class="flex gap-4 mt-1 text-xs text-gray-500">
-          <span>Input: {{ formatTokens(summary?.totalInputTokens || 0) }}</span>
-          <span>Output: {{ formatTokens(summary?.totalOutputTokens || 0) }}</span>
+          <span>Input: {{ formatTokens(filteredSummary?.totalInputTokens || 0) }}</span>
+          <span>Output: {{ formatTokens(filteredSummary?.totalOutputTokens || 0) }}</span>
         </div>
       </div>
 
-      <!-- 缓存 Token -->
+      <!-- 缓存 Token / 对话持续时间（Cursor 专用） -->
       <div class="p-4 rounded-xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
         <div class="flex items-center justify-between mb-2">
-          <span class="text-sm text-gray-500">{{ t('usage.cacheTokens') }}</span>
-          <div class="w-8 h-8 rounded-lg bg-orange-500/10 flex items-center justify-center">
-            <SvgIcon name="save" class="w-4 h-4 text-orange-500" />
+          <span class="text-sm text-gray-500">{{ selectedProvider === 'cursor' ? t('usage.totalDuration') : t('usage.cacheTokens') }}</span>
+          <div class="w-8 h-8 rounded-lg flex items-center justify-center"
+               :class="selectedProvider === 'cursor' ? 'bg-purple-500/10' : 'bg-orange-500/10'">
+            <SvgIcon :name="selectedProvider === 'cursor' ? 'clock' : 'save'" 
+                     class="w-4 h-4" 
+                     :class="selectedProvider === 'cursor' ? 'text-purple-500' : 'text-orange-500'" />
           </div>
         </div>
-        <p class="text-2xl font-bold">{{ formatTokens((summary?.totalCacheCreationTokens || 0) + (summary?.totalCacheReadTokens || 0)) }}</p>
-        <div class="flex gap-4 mt-1 text-xs text-gray-500">
-          <span>{{ t('usage.cacheCreation') }}: {{ formatTokens(summary?.totalCacheCreationTokens || 0) }}</span>
-          <span>{{ t('usage.cacheHit') }}: {{ formatTokens(summary?.totalCacheReadTokens || 0) }}</span>
-        </div>
+        <!-- Cursor: 显示累计耗时 -->
+        <template v-if="selectedProvider === 'cursor'">
+          <p class="text-2xl font-bold">{{ formatDuration(cursorConversationStats?.totalDurationMs || 0) }}</p>
+        </template>
+        <!-- 其他: 显示缓存 Token -->
+        <template v-else>
+          <p class="text-2xl font-bold">{{ formatTokens((filteredSummary?.totalCacheCreationTokens || 0) + (filteredSummary?.totalCacheReadTokens || 0)) }}</p>
+          <div class="flex gap-4 mt-1 text-xs text-gray-500">
+            <span>{{ t('usage.cacheCreation') }}: {{ formatTokens(filteredSummary?.totalCacheCreationTokens || 0) }}</span>
+            <span>{{ t('usage.cacheHit') }}: {{ formatTokens(filteredSummary?.totalCacheReadTokens || 0) }}</span>
+          </div>
+        </template>
       </div>
     </div>
+
 
     <!-- 服务商统计 -->
     <div class="p-4 rounded-xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
@@ -1000,6 +1317,7 @@ onUnmounted(() => {
               { id: 'codex', label: 'Codex' },
               { id: 'gemini', label: 'Gemini' },
               { id: 'opencode', label: 'Opencode' },
+              { id: 'cursor', label: 'Cursor' },
             ]"
             :key="provider.id"
             @click="selectedProvider = provider.id as any"
@@ -1037,6 +1355,60 @@ onUnmounted(() => {
       </div>
       <div v-else class="py-8 text-center text-gray-400">
         {{ t('usage.noProviderData') }}
+      </div>
+    </div>
+
+    <!-- 对话统计卡片 -->
+    <div v-if="showConversationStats" class="p-4 rounded-xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
+      <h3 class="font-semibold mb-4">{{ t('usage.conversationStats') }}</h3>
+      
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+        <!-- 总对话数 -->
+        <div class="p-3 rounded-lg bg-gray-50 dark:bg-gray-700/50">
+          <div class="flex items-center justify-between mb-1">
+            <span class="text-xs text-gray-500">{{ t('usage.totalConversations') }}</span>
+            <SvgIcon name="message" class="w-4 h-4 text-blue-500" />
+          </div>
+          <p class="text-xl font-bold">{{ conversationStatsData.totalConversations.toLocaleString() }}</p>
+          <p v-if="selectedProvider === 'cursor' && cursorConversationStats" class="text-xs text-gray-500 mt-1">
+            消息数: {{ cursorConversationStats.totalMessages.toLocaleString() }}
+          </p>
+        </div>
+        
+        <!-- 工具调用数 / MCP 数量 -->
+        <div class="p-3 rounded-lg bg-gray-50 dark:bg-gray-700/50">
+          <div class="flex items-center justify-between mb-1">
+            <span class="text-xs text-gray-500">{{ selectedProvider === 'cursor' ? t('usage.mcpCount') : t('usage.totalToolCalls') }}</span>
+            <SvgIcon name="tool" class="w-4 h-4 text-purple-500" />
+          </div>
+          <!-- Cursor 显示 MCP 数量，其他显示工具调用数 -->
+          <p class="text-xl font-bold">
+            {{ selectedProvider === 'cursor' && cursorConversationStats ? cursorConversationStats.mcpCount : conversationStatsData.toolCalls.toLocaleString() }}
+          </p>
+        </div>
+        
+        <!-- 文件变更 -->
+        <div class="p-3 rounded-lg bg-gray-50 dark:bg-gray-700/50">
+          <div class="flex items-center justify-between mb-1">
+            <span class="text-xs text-gray-500">{{ t('usage.filesChanged') }}</span>
+            <SvgIcon name="file" class="w-4 h-4 text-orange-500" />
+          </div>
+          <p class="text-xl font-bold">{{ conversationStatsData.filesChanged.toLocaleString() }}</p>
+        </div>
+        
+        <!-- 代码变更 -->
+        <div class="p-3 rounded-lg bg-gray-50 dark:bg-gray-700/50">
+          <div class="flex items-center justify-between mb-1">
+            <span class="text-xs text-gray-500">{{ t('usage.codeChanges') }}</span>
+            <SvgIcon name="code" class="w-4 h-4 text-green-500" />
+          </div>
+          <!-- 显示代码变更总行数 -->
+          <p class="text-xl font-bold">{{ (conversationStatsData.linesAdded + conversationStatsData.linesDeleted).toLocaleString() }}</p>
+          <!-- Cursor 额外显示代码块数量 -->
+          <p v-if="selectedProvider === 'cursor' && cursorConversationStats" class="text-xs text-gray-500 mt-1">
+            代码块: {{ cursorConversationStats.codeBlocks.toLocaleString() }}
+          </p>
+        </div>
       </div>
     </div>
 
@@ -1199,10 +1571,10 @@ onUnmounted(() => {
       </div>
 
       <!-- 模型图例 -->
-      <div v-if="topModels.length > 0" class="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+      <div v-if="allModels.length > 0" class="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
         <div class="flex flex-wrap gap-x-4 gap-y-2 text-xs">
           <div 
-            v-for="(model, index) in topModels" 
+            v-for="(model, index) in (modelLegendExpanded ? allModels : topModels)" 
             :key="model"
             class="flex items-center gap-1.5"
           >
@@ -1213,10 +1585,82 @@ onUnmounted(() => {
             ></span>
             <span class="text-gray-700 dark:text-gray-300 truncate max-w-[150px]" :title="model">{{ model }}</span>
           </div>
-          <div v-if="otherModelsCount > 0" class="flex items-center gap-1.5 text-gray-400">
-            <span>+ {{ otherModelsCount }} {{ t('usage.otherModels') }} ({{ formatTokens(otherModelsTokens) }})</span>
+          <!-- 展开/收起按钮 -->
+          <button 
+            v-if="otherModelsCount > 0" 
+            @click="modelLegendExpanded = !modelLegendExpanded"
+            class="flex items-center gap-1.5 text-blue-500 hover:text-blue-600 transition-colors"
+          >
+            <template v-if="modelLegendExpanded">
+              <SvgIcon name="chevron-up" class="w-3.5 h-3.5" />
+              <span>{{ t('usage.collapse') }}</span>
+            </template>
+            <template v-else>
+              <span>+ {{ otherModelsCount }} {{ t('usage.otherModels') }} ({{ formatTokens(otherModelsTokens) }})</span>
+              <SvgIcon name="chevron-down" class="w-3.5 h-3.5" />
+            </template>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 工具调用统计 -->
+    <div v-if="toolCallStats.length > 0" class="p-4 rounded-xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
+      <div class="flex items-center justify-between mb-2">
+        <div class="flex items-center gap-2">
+          <h3 class="font-semibold">{{ t('usage.toolCallStats') }}</h3>
+          <span class="text-xs text-gray-400">
+            ({{ toolCallStats.reduce((sum, s) => sum + s.callCount, 0).toLocaleString() }} {{ t('usage.calls') }})
+          </span>
+        </div>
+        <button
+          @click="toolStatsCollapsed = !toolStatsCollapsed"
+          class="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+          :title="toolStatsCollapsed ? t('usage.expand') : t('usage.collapse')"
+        >
+          <SvgIcon 
+            :name="toolStatsCollapsed ? 'chevron-down' : 'chevron-up'" 
+            class="w-4 h-4 text-gray-500"
+          />
+        </button>
+      </div>
+      
+      <div v-if="!toolStatsCollapsed" class="space-y-2">
+        <div 
+          v-for="stat in (toolStatsExpanded ? toolCallStats : toolCallStats.slice(0, toolStatsDefaultCount))" 
+          :key="stat.toolName"
+          class="flex items-center gap-3"
+        >
+          <div class="w-24 text-sm font-medium truncate" :title="stat.toolName">{{ stat.toolName }}</div>
+          <div class="flex-1 h-5 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
+            <div 
+              class="h-full bg-gradient-to-r from-blue-500 to-purple-500 rounded-full transition-all duration-300"
+              :style="{ width: `${stat.percentage}%` }"
+            ></div>
+          </div>
+          <div class="w-20 text-sm text-right">
+            <span class="font-medium">{{ stat.callCount.toLocaleString() }}</span>
+            <span class="text-gray-400 text-xs ml-1">({{ stat.percentage.toFixed(1) }}%)</span>
           </div>
         </div>
+        
+        <!-- 查看全部/收起按钮 -->
+        <div v-if="toolCallStats.length > toolStatsDefaultCount" class="pt-2 text-center">
+          <button
+            @click="toolStatsExpanded = !toolStatsExpanded"
+            class="text-xs text-blue-500 hover:text-blue-600 hover:underline transition-colors"
+          >
+            {{ toolStatsExpanded 
+              ? t('usage.collapse') 
+              : t('usage.viewAll', { count: toolCallStats.length }) 
+            }}
+          </button>
+        </div>
+      </div>
+      
+      <!-- 收缩状态下显示摘要 -->
+      <div v-else class="text-sm text-gray-500">
+        {{ toolCallStats.length }} {{ t('usage.toolTypes') }}
       </div>
     </div>
 
@@ -1317,6 +1761,9 @@ onUnmounted(() => {
         <div v-if="scanning" class="py-8 text-center text-gray-500">
           <div class="animate-spin w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full mx-auto mb-3"></div>
           {{ t('usage.scanning') }}
+          <div v-if="localLogProgress?.phase === 'scan'" class="mt-2 text-xs text-gray-400">
+            {{ progressText }}
+          </div>
         </div>
 
         <!-- 扫描结果 -->
@@ -1429,13 +1876,40 @@ onUnmounted(() => {
             </label>
           </div>
 
+          <!-- Cursor -->
+          <div class="p-4 rounded-lg bg-gray-50 dark:bg-gray-700/50">
+            <label class="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                v-model="importCursor"
+                :disabled="!scanResult.cursorFiles || importing"
+                class="mt-1 w-4 h-4 rounded border-gray-300 text-blue-500 focus:ring-blue-500"
+              />
+              <div class="flex-1">
+                <div class="flex items-center gap-2">
+                  <span class="font-medium">Cursor</span>
+                  <span v-if="scanResult.cursorFiles" class="text-xs px-2 py-0.5 bg-purple-100 dark:bg-purple-900 text-purple-600 dark:text-purple-300 rounded">
+                    {{ scanResult.cursorFiles }} {{ t('usage.files') }}
+                  </span>
+                  <span v-else class="text-xs text-gray-400">{{ t('usage.notFound') }}</span>
+                </div>
+                <p v-if="scanResult.cursorPath" class="text-xs text-gray-500 mt-1 break-all">
+                  {{ scanResult.cursorPath }}
+                </p>
+                <p v-if="scanResult.cursorEntries" class="text-xs text-gray-500">
+                  ~{{ scanResult.cursorEntries }} {{ t('usage.entries') }}
+                </p>
+              </div>
+            </label>
+          </div>
+
           <!-- 已导入记录提示 -->
           <div v-if="scanResult.existingRecords > 0" class="text-xs text-gray-500 px-1">
             {{ t('usage.existingRecords') }}: {{ scanResult.existingRecords }}
           </div>
 
           <!-- 无可导入数据 -->
-          <div v-if="!scanResult.claudeFiles && !scanResult.codexFiles && !scanResult.geminiFiles && !scanResult.opencodeFiles" class="text-center py-4 text-gray-400">
+          <div v-if="!scanResult.claudeFiles && !scanResult.codexFiles && !scanResult.geminiFiles && !scanResult.opencodeFiles && !scanResult.cursorFiles" class="text-center py-4 text-gray-400">
             {{ t('usage.noLogsFound') }}
           </div>
 
@@ -1459,12 +1933,16 @@ onUnmounted(() => {
             </button>
             <button
               @click="importLocalLogs"
-              :disabled="importing || (!importClaude && !importCodex && !importGemini && !importOpencode) || (!scanResult.claudeFiles && !scanResult.codexFiles && !scanResult.geminiFiles && !scanResult.opencodeFiles)"
+              :disabled="importing || (!importClaude && !importCodex && !importGemini && !importOpencode && !importCursor) || (!scanResult.claudeFiles && !scanResult.codexFiles && !scanResult.geminiFiles && !scanResult.opencodeFiles && !scanResult.cursorFiles)"
               class="px-4 py-2 text-sm bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
             >
               <div v-if="importing" class="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full"></div>
               {{ importing ? t('usage.importing') : t('usage.import') }}
             </button>
+          </div>
+
+          <div v-if="importing && localLogProgress?.phase === 'import'" class="text-xs text-gray-400 pt-2">
+            {{ progressText }}
           </div>
         </div>
 

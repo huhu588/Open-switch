@@ -9,6 +9,7 @@ pub mod opencode_manager;
 pub mod claude_code_manager;
 pub mod codex_manager;
 pub mod gemini_manager;
+pub mod cursor_manager;
 pub mod open_switch_manager;
 
 pub use thiserror::Error;

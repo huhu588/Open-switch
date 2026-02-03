@@ -57,6 +57,7 @@ interface ManagedSkill {
   codex_enabled: boolean
   gemini_enabled: boolean
   opencode_enabled: boolean
+  cursor_enabled: boolean
   source_path: string | null
   is_local: boolean
 }
@@ -67,6 +68,7 @@ interface SkillsStats {
   codex_count: number
   gemini_count: number
   opencode_count: number
+  cursor_count: number
 }
 
 // 状态
@@ -109,7 +111,7 @@ const selectedDiscovered = ref<Set<string>>(new Set())
 // Skills 管理
 const showManageModal = ref(false)
 const managedSkills = ref<ManagedSkill[]>([])
-const skillsStats = ref<SkillsStats>({ claude_count: 0, codex_count: 0, gemini_count: 0, opencode_count: 0 })
+const skillsStats = ref<SkillsStats>({ claude_count: 0, codex_count: 0, gemini_count: 0, opencode_count: 0, cursor_count: 0 })
 const togglingTool = ref<string | null>(null) // 正在切换的 skill-tool 组合
 const manageSearchQuery = ref('')
 
@@ -118,6 +120,7 @@ const groupedSkills = computed(() => {
   const groups: Record<string, InstalledSkill[]> = {
     'GlobalOpenCode': [],
     'GlobalClaude': [],
+    'GlobalCursor': [],
     'ProjectOpenCode': [],
     'ProjectClaude': [],
   }
@@ -136,6 +139,7 @@ const groupedSkills = computed(() => {
 const locationLabels = computed((): Record<string, string> => ({
   'GlobalOpenCode': t('skills.locationLabels.GlobalOpenCode'),
   'GlobalClaude': t('skills.locationLabels.GlobalClaude'),
+  'GlobalCursor': t('skills.locationLabels.GlobalCursor'),
   'ProjectOpenCode': t('skills.locationLabels.ProjectOpenCode'),
   'ProjectClaude': t('skills.locationLabels.ProjectClaude'),
 }))
@@ -144,6 +148,7 @@ const locationLabels = computed((): Record<string, string> => ({
 const installLocationOptions = computed(() => [
   { key: 'global_opencode', label: t('skills.locations.globalOpencode') },
   { key: 'global_claude', label: t('skills.locations.globalClaude') },
+  { key: 'global_cursor', label: t('skills.locations.globalCursor') },
   { key: 'project_opencode', label: t('skills.locations.projectOpencode') },
   { key: 'project_claude', label: t('skills.locations.projectClaude') },
 ])
@@ -201,7 +206,7 @@ const filteredManagedSkills = computed(() => {
 })
 
 // 切换 skill 的工具启用状态
-async function toggleSkillTool(skill: ManagedSkill, tool: 'claude' | 'codex' | 'gemini' | 'opencode') {
+async function toggleSkillTool(skill: ManagedSkill, tool: 'claude' | 'codex' | 'gemini' | 'opencode' | 'cursor') {
   const key = `${skill.name}-${tool}`
   if (togglingTool.value) return
   
@@ -210,6 +215,7 @@ async function toggleSkillTool(skill: ManagedSkill, tool: 'claude' | 'codex' | '
   const currentEnabled = tool === 'claude' ? skill.claude_enabled :
                          tool === 'codex' ? skill.codex_enabled :
                          tool === 'gemini' ? skill.gemini_enabled :
+                         tool === 'cursor' ? skill.cursor_enabled :
                          skill.opencode_enabled
   
   try {
@@ -223,6 +229,7 @@ async function toggleSkillTool(skill: ManagedSkill, tool: 'claude' | 'codex' | '
     if (tool === 'claude') skill.claude_enabled = !currentEnabled
     else if (tool === 'codex') skill.codex_enabled = !currentEnabled
     else if (tool === 'gemini') skill.gemini_enabled = !currentEnabled
+    else if (tool === 'cursor') skill.cursor_enabled = !currentEnabled
     else skill.opencode_enabled = !currentEnabled
     
     // 更新统计
@@ -243,11 +250,12 @@ async function deleteSkillFromAll(skill: ManagedSkill) {
   
   try {
     // 依次从各个工具中删除
-    const tools = ['claude', 'codex', 'gemini', 'opencode'] as const
+    const tools = ['claude', 'codex', 'gemini', 'opencode', 'cursor'] as const
     for (const tool of tools) {
       const enabled = tool === 'claude' ? skill.claude_enabled :
                       tool === 'codex' ? skill.codex_enabled :
                       tool === 'gemini' ? skill.gemini_enabled :
+                      tool === 'cursor' ? skill.cursor_enabled :
                       skill.opencode_enabled
       
       if (enabled) {
@@ -1207,7 +1215,7 @@ onMounted(() => {
           
           <!-- 统计信息 -->
           <div class="px-6 py-3 border-b border-border bg-surface/30 text-sm text-muted-foreground">
-            已安装 · Claude: {{ skillsStats.claude_count }} · Codex: {{ skillsStats.codex_count }} · Gemini: {{ skillsStats.gemini_count }} · OpenCode: {{ skillsStats.opencode_count }}
+            已安装 · Claude: {{ skillsStats.claude_count }} · Codex: {{ skillsStats.codex_count }} · Gemini: {{ skillsStats.gemini_count }} · OpenCode: {{ skillsStats.opencode_count }} · Cursor: {{ skillsStats.cursor_count }}
           </div>
           
           <!-- 搜索框 -->
@@ -1301,6 +1309,22 @@ onMounted(() => {
                       <span
                         class="absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200"
                         :class="skill.opencode_enabled ? 'translate-x-5' : 'translate-x-0'"
+                      ></span>
+                    </button>
+                  </div>
+                  
+                  <!-- Cursor 开关 -->
+                  <div class="flex items-center justify-between gap-3 min-w-[120px]">
+                    <span class="text-sm text-muted-foreground">Cursor</span>
+                    <button
+                      @click="toggleSkillTool(skill, 'cursor')"
+                      :disabled="togglingTool !== null"
+                      class="relative w-11 h-6 rounded-full transition-colors duration-200"
+                      :class="skill.cursor_enabled ? 'bg-emerald-500' : 'bg-gray-600'"
+                    >
+                      <span
+                        class="absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200"
+                        :class="skill.cursor_enabled ? 'translate-x-5' : 'translate-x-0'"
                       ></span>
                     </button>
                   </div>

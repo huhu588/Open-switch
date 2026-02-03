@@ -236,7 +236,23 @@ export default {
     syncToOpenCode: 'OpenCodeに同期',
     syncing: '同期中...',
     syncSuccess: '~/.opencode/opencode.jsonに同期しました',
-    syncFailed: '同期に失敗しました'
+    syncFailed: '同期に失敗しました',
+    // Deployed apps
+    deployedApps: 'デプロイ済みアプリ',
+    import: 'インポート',
+    importFromApp: 'アプリからMCPをインポート',
+    importedCount: '{count}件インポート',
+    skippedCount: '{count}件スキップ（既存）',
+    failedCount: '{count}件失敗',
+    noMcpToImport: 'インポートするMCPがありません',
+    importFailed: 'インポートに失敗しました',
+    // MCP管理
+    manage: 'MCP管理',
+    manageTitle: 'MCP管理',
+    installed: 'インストール済み',
+    searchMcp: 'MCPを検索...',
+    deleteFromAll: '全てのアプリから削除',
+    totalMcps: '合計{count}件のMCP'
   },
 
   // Backup page
@@ -328,6 +344,7 @@ export default {
     locations: {
       globalOpencode: 'グローバルOpenCode',
       globalClaude: 'グローバルClaude',
+      globalCursor: 'グローバルCursor',
       projectOpencode: 'プロジェクトOpenCode',
       projectClaude: 'プロジェクトClaude'
     },
@@ -335,6 +352,7 @@ export default {
     locationLabels: {
       GlobalOpenCode: 'グローバルOpenCode (~/.config/opencode/skills/)',
       GlobalClaude: 'グローバルClaude (~/.claude/skills/)',
+      GlobalCursor: 'グローバルCursor (~/.cursor/skills/)',
       ProjectOpenCode: 'プロジェクトOpenCode (.opencode/skills/)',
       ProjectClaude: 'プロジェクトClaude (.claude/skills/)'
     },
@@ -379,7 +397,14 @@ export default {
     content: 'ルール内容',
     syncToCliTools: 'CLIツールに同期',
     syncToCliToolsHint: 'ルール内容を対応するCLIツールのシステムプロンプトファイルにも書き込む',
-    selectInstallTarget: '少なくとも1つのインストール対象を選択してください'
+    selectInstallTarget: '少なくとも1つのインストール対象を選択してください',
+    // ルール管理
+    manage: 'ルール管理',
+    manageTitle: 'ルール管理',
+    installed: 'インストール済み',
+    searchRule: 'ルールを検索...',
+    deleteFromAll: '全てのアプリから削除',
+    totalRules: '合計{count}件のルール'
   },
 
   // Status page
@@ -648,9 +673,13 @@ export default {
     totalRequests: '総リクエスト数',
     totalCost: '総コスト',
     totalTokens: '総トークン',
+    textTokens: 'テキストトークン',
+    cursorTokenTooltip: '実際のトークン = テキストトークン + コードコンテキスト + キャッシュ等（ローカルはテキストトークンのみ記録）',
     cacheTokens: 'キャッシュトークン',
     cacheCreation: '作成',
     cacheHit: 'ヒット',
+    totalDuration: '累計時間',
+    conversations: '会話数',
     trend: '使用トレンド',
     past24h: '過去24時間（時間別）',
     past7d: '過去7日間',
@@ -734,6 +763,24 @@ export default {
     // 自動インポート
     autoImport: 'ログ自動インポート',
     autoImportDesc: '使用統計ページを開く時にローカルログを自動的にインポート',
-    autoImported: '{count} 件を自動インポートしました'
+    autoImported: '{count} 件を自動インポートしました',
+    // セッション統計
+    conversationStats: '会話統計',
+    totalConversations: '総会話数',
+    totalToolCalls: 'ツール呼び出し数',
+    mcpCount: 'MCP数',
+    filesChanged: 'ファイル変更数',
+    codeChanges: 'コード変更',
+    avgResponseTime: '平均応答時間',
+    avgThinkingTime: '平均思考時間',
+    totalTime: '総所要時間',
+    // ツール呼び出し統計
+    toolCallStats: 'ツール呼び出し統計',
+    moreTools: '他のツール',
+    expand: '展開',
+    collapse: '折りたたむ',
+    toolTypes: '種類のツール',
+    calls: '回の呼び出し',
+    viewAll: 'すべて表示 ({count} 種類)'
   }
 }

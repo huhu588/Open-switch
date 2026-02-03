@@ -1,4 +1,5 @@
 // Ai Switch Tauri 库入口
+// v1.5.0 - 添加 Cursor 对话统计功能
 
 pub mod commands;
 pub mod config;
@@ -272,6 +273,11 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             commands::check_mcp_server_health,
             commands::sync_mcp_to_apps,
             commands::get_apps_mcp_status,
+            commands::import_mcp_from_apps,
+            commands::get_managed_mcps,
+            commands::get_mcp_stats,
+            commands::toggle_mcp_app,
+            commands::delete_mcp_from_all,
             // skills commands
             commands::get_installed_skills,
             commands::get_recommended_skills,
@@ -297,6 +303,10 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             commands::read_rule_content,
             commands::save_rule_content,
             commands::toggle_rule_enabled,
+            commands::get_managed_rules,
+            commands::get_rule_stats,
+            commands::toggle_rule_app,
+            commands::delete_rule_from_all,
             // Status commands
             commands::get_status,
             commands::get_version,
@@ -438,6 +448,9 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             commands::import_to_open_switch,
             commands::get_open_switch_config_path,
             // Local logs import commands
+            commands::debug_cursor_db_keys,
+            commands::debug_cursor_message_fields,
+            commands::get_cursor_conversation_stats,
             commands::scan_local_logs,
             commands::import_local_logs,
             commands::clear_local_logs,
@@ -446,6 +459,9 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             commands::get_log_retention,
             commands::set_log_retention,
             commands::cleanup_old_logs,
+            // Session stats commands
+            commands::get_session_stats_summary,
+            commands::get_tool_call_stats,
         ])
         .run(tauri::generate_context!())?;
 

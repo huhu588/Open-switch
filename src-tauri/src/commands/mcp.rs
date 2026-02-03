@@ -56,6 +56,32 @@ pub struct SyncMcpInput {
     pub sync_to_project: bool,
 }
 
+/// 聚合的 MCP 管理信息（类似 ManagedSkill）
+#[derive(Debug, Clone, Serialize)]
+pub struct ManagedMcp {
+    pub name: String,
+    pub server_type: String,
+    pub command: Option<Vec<String>>,
+    pub url: Option<String>,
+    pub package_name: Option<String>,
+    // 各应用启用状态
+    pub opencode_enabled: bool,
+    pub claude_enabled: bool,
+    pub codex_enabled: bool,
+    pub gemini_enabled: bool,
+    pub cursor_enabled: bool,
+}
+
+/// MCP 统计信息
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct McpStats {
+    pub opencode_count: usize,
+    pub claude_count: usize,
+    pub codex_count: usize,
+    pub gemini_count: usize,
+    pub cursor_count: usize,
+}
+
 /// 从命令中提取npm包名
 fn extract_package_name(command: &Option<Vec<String>>) -> Option<String> {
     if let Some(cmd) = command {
@@ -449,6 +475,7 @@ pub enum McpSyncTarget {
     ClaudeCode,
     Codex,
     Gemini,
+    Cursor,
 }
 
 /// 跨应用 MCP 同步输入
@@ -476,6 +503,7 @@ pub fn sync_mcp_to_apps(
     use crate::config::claude_code_manager::{ClaudeCodeConfigManager, ClaudeMcpServer};
     use crate::config::codex_manager::{CodexConfigManager, CodexMcpServer};
     use crate::config::gemini_manager::{GeminiConfigManager, GeminiMcpServer};
+    use crate::config::cursor_manager::{CursorConfigManager, CursorMcpServer};
     
     let manager = config_manager.lock().map_err(|e| AppError::Custom(e.to_string()))?;
     
@@ -639,6 +667,47 @@ pub fn sync_mcp_to_apps(
                     },
                 }
             }
+            McpSyncTarget::Cursor => {
+                match CursorConfigManager::new() {
+                    Ok(cursor_manager) => {
+                        // 转换为 Cursor 格式
+                        let cursor_servers: HashMap<String, CursorMcpServer> = servers_to_sync.iter()
+                            .map(|(name, server)| {
+                                let cursor_server = CursorMcpServer {
+                                    command: server.command.as_ref().and_then(|c| c.first().cloned()),
+                                    args: server.command.as_ref()
+                                        .map(|c| c.iter().skip(1).cloned().collect())
+                                        .unwrap_or_default(),
+                                    env: server.environment.clone(),
+                                    url: server.url.clone(),
+                                };
+                                ((*name).clone(), cursor_server)
+                            })
+                            .collect();
+                        
+                        match cursor_manager.sync_mcp_servers(cursor_servers) {
+                            Ok(_) => CrossAppMcpSyncResult {
+                                target: "Cursor".to_string(),
+                                success: true,
+                                message: "同步成功".to_string(),
+                                synced_count: servers_to_sync.len(),
+                            },
+                            Err(e) => CrossAppMcpSyncResult {
+                                target: "Cursor".to_string(),
+                                success: false,
+                                message: e,
+                                synced_count: 0,
+                            },
+                        }
+                    }
+                    Err(e) => CrossAppMcpSyncResult {
+                        target: "Cursor".to_string(),
+                        success: false,
+                        message: e,
+                        synced_count: 0,
+                    },
+                }
+            }
         };
         
         results.push(result);
@@ -663,6 +732,7 @@ pub fn get_apps_mcp_status(
     use crate::config::claude_code_manager::ClaudeCodeConfigManager;
     use crate::config::codex_manager::CodexConfigManager;
     use crate::config::gemini_manager::GeminiConfigManager;
+    use crate::config::cursor_manager::CursorConfigManager;
     
     let manager = config_manager.lock().map_err(|e| AppError::Custom(e.to_string()))?;
     
@@ -738,7 +808,213 @@ pub fn get_apps_mcp_status(
         }
     }
     
+    // Cursor
+    if let Ok(cursor_manager) = CursorConfigManager::new() {
+        if let Ok(cursor_servers) = cursor_manager.get_mcp_servers() {
+            let server_names: Vec<String> = cursor_servers.keys().cloned().collect();
+            statuses.push(AppMcpStatus {
+                app_name: "Cursor".to_string(),
+                is_configured: !server_names.is_empty(),
+                server_count: server_names.len(),
+                server_names,
+            });
+        } else {
+            statuses.push(AppMcpStatus {
+                app_name: "Cursor".to_string(),
+                is_configured: false,
+                server_count: 0,
+                server_names: Vec::new(),
+            });
+        }
+    }
+    
     Ok(statuses)
+}
+
+/// 从其他应用导入 MCP 配置
+#[derive(Debug, Serialize)]
+pub struct ImportMcpResult {
+    pub imported: Vec<String>,
+    pub skipped: Vec<String>,
+    pub failed: Vec<String>,
+}
+
+/// 从其他应用导入 MCP 配置到 Ai Switch
+#[tauri::command]
+pub fn import_mcp_from_apps(
+    app_name: String,
+    config_manager: State<'_, Mutex<ConfigManager>>,
+) -> Result<ImportMcpResult, AppError> {
+    use crate::config::claude_code_manager::ClaudeCodeConfigManager;
+    use crate::config::codex_manager::CodexConfigManager;
+    use crate::config::gemini_manager::GeminiConfigManager;
+    use crate::config::cursor_manager::CursorConfigManager;
+    
+    let mut manager = config_manager.lock().map_err(|e| AppError::Custom(e.to_string()))?;
+    
+    let mut result = ImportMcpResult {
+        imported: Vec::new(),
+        skipped: Vec::new(),
+        failed: Vec::new(),
+    };
+    
+    // 获取当前已有的 MCP 名称
+    let existing_config = manager.mcp().read_config()?;
+    let existing_names: std::collections::HashSet<String> = existing_config.servers.keys().cloned().collect();
+    
+    // 根据应用名称获取 MCP 配置
+    let servers_to_import: Vec<(String, McpServer)> = match app_name.as_str() {
+        "Claude Code" => {
+            if let Ok(claude_manager) = ClaudeCodeConfigManager::new() {
+                if let Ok(servers) = claude_manager.get_mcp_servers() {
+                    servers.into_iter().map(|(name, srv)| {
+                        // Claude Code 格式: command 是单独的字符串, args 是数组
+                        let command = if let Some(cmd) = srv.command {
+                            let mut full_cmd = vec![cmd];
+                            full_cmd.extend(srv.args);
+                            Some(full_cmd)
+                        } else if !srv.args.is_empty() {
+                            Some(srv.args)
+                        } else {
+                            None
+                        };
+                        let mcp = McpServer {
+                            server_type: if command.is_some() { McpServerType::Local } else { McpServerType::Remote },
+                            enabled: true,
+                            timeout: None,
+                            command,
+                            environment: srv.env,
+                            url: srv.url,
+                            headers: srv.headers,
+                            oauth: None,
+                            metadata: Default::default(),
+                        };
+                        (name, mcp)
+                    }).collect()
+                } else {
+                    Vec::new()
+                }
+            } else {
+                Vec::new()
+            }
+        },
+        "Codex" => {
+            if let Ok(codex_manager) = CodexConfigManager::new() {
+                if let Ok(servers) = codex_manager.get_mcp_servers() {
+                    servers.into_iter().map(|(name, srv)| {
+                        // Codex 格式: command 已经是 Vec<String>，没有 url
+                        let command = if !srv.command.is_empty() { Some(srv.command) } else { None };
+                        let mcp = McpServer {
+                            server_type: McpServerType::Local, // Codex 只有本地命令
+                            enabled: true,
+                            timeout: None,
+                            command,
+                            environment: srv.env,
+                            url: None,
+                            headers: HashMap::new(),
+                            oauth: None,
+                            metadata: Default::default(),
+                        };
+                        (name, mcp)
+                    }).collect()
+                } else {
+                    Vec::new()
+                }
+            } else {
+                Vec::new()
+            }
+        },
+        "Gemini CLI" => {
+            if let Ok(gemini_manager) = GeminiConfigManager::new() {
+                if let Ok(servers) = gemini_manager.get_mcp_servers() {
+                    servers.into_iter().map(|(name, srv)| {
+                        // Gemini 格式: command 是单独的字符串, args 是数组
+                        let command = if let Some(cmd) = srv.command {
+                            let mut full_cmd = vec![cmd];
+                            full_cmd.extend(srv.args);
+                            Some(full_cmd)
+                        } else if !srv.args.is_empty() {
+                            Some(srv.args)
+                        } else {
+                            None
+                        };
+                        let mcp = McpServer {
+                            server_type: if command.is_some() { McpServerType::Local } else { McpServerType::Remote },
+                            enabled: true,
+                            timeout: None,
+                            command,
+                            environment: srv.env,
+                            url: srv.url,
+                            headers: HashMap::new(),
+                            oauth: None,
+                            metadata: Default::default(),
+                        };
+                        (name, mcp)
+                    }).collect()
+                } else {
+                    Vec::new()
+                }
+            } else {
+                Vec::new()
+            }
+        },
+        "Cursor" => {
+            if let Ok(cursor_manager) = CursorConfigManager::new() {
+                if let Ok(servers) = cursor_manager.get_mcp_servers() {
+                    servers.into_iter().map(|(name, srv)| {
+                        // Cursor 格式: command 是单独的字符串, args 是数组
+                        let command = if let Some(cmd) = srv.command {
+                            let mut full_cmd = vec![cmd];
+                            full_cmd.extend(srv.args);
+                            Some(full_cmd)
+                        } else if !srv.args.is_empty() {
+                            Some(srv.args)
+                        } else {
+                            None
+                        };
+                        let mcp = McpServer {
+                            server_type: if command.is_some() { McpServerType::Local } else { McpServerType::Remote },
+                            enabled: true,
+                            timeout: None,
+                            command,
+                            environment: srv.env,
+                            url: srv.url,
+                            headers: HashMap::new(),
+                            oauth: None,
+                            metadata: Default::default(),
+                        };
+                        (name, mcp)
+                    }).collect()
+                } else {
+                    Vec::new()
+                }
+            } else {
+                Vec::new()
+            }
+        },
+        _ => {
+            return Err(AppError::Custom(format!("不支持的应用: {}", app_name)));
+        }
+    };
+    
+    // 导入 MCP
+    for (name, server) in servers_to_import {
+        if existing_names.contains(&name) {
+            result.skipped.push(name);
+        } else {
+            match manager.mcp_mut().save_server(&name, server) {
+                Ok(_) => result.imported.push(name),
+                Err(e) => result.failed.push(format!("{}: {}", name, e)),
+            }
+        }
+    }
+    
+    // 同步到 OpenCode
+    if !result.imported.is_empty() {
+        let _ = manager.mcp().sync_to_opencode(None);
+    }
+    
+    Ok(result)
 }
 
 /// 构建 McpServer 对象
@@ -766,4 +1042,326 @@ fn build_mcp_server(input: &McpServerInput) -> Result<McpServer, AppError> {
         oauth,
         metadata: Default::default(),
     })
+}
+
+// ============================================================================
+// MCP 多应用统一管理
+// ============================================================================
+
+/// 获取所有管理的 MCP（聚合各应用的状态）
+#[tauri::command]
+pub fn get_managed_mcps(
+    config_manager: State<'_, Mutex<ConfigManager>>,
+) -> Result<Vec<ManagedMcp>, AppError> {
+    use crate::config::claude_code_manager::ClaudeCodeConfigManager;
+    use crate::config::codex_manager::CodexConfigManager;
+    use crate::config::gemini_manager::GeminiConfigManager;
+    use crate::config::cursor_manager::CursorConfigManager;
+    use std::collections::HashSet;
+    
+    let manager = config_manager.lock().map_err(|e| AppError::Custom(e.to_string()))?;
+    
+    // 收集所有 MCP 名称
+    let mut all_mcp_names: HashSet<String> = HashSet::new();
+    let mut managed_mcps: HashMap<String, ManagedMcp> = HashMap::new();
+    
+    // 从 Ai Switch 获取 MCP
+    let ai_switch_config = manager.mcp().read_config()?;
+    for (name, server) in &ai_switch_config.servers {
+        all_mcp_names.insert(name.clone());
+        managed_mcps.insert(name.clone(), ManagedMcp {
+            name: name.clone(),
+            server_type: server.server_type.to_string(),
+            command: server.command.clone(),
+            url: server.url.clone(),
+            package_name: extract_package_name(&server.command),
+            opencode_enabled: false,
+            claude_enabled: false,
+            codex_enabled: false,
+            gemini_enabled: false,
+            cursor_enabled: false,
+        });
+    }
+    
+    // 检查 OpenCode
+    if let Ok(opencode_config) = manager.mcp().read_opencode_config() {
+        if let Some(mcps) = opencode_config.get("mcpServers").and_then(|m| m.as_object()) {
+            for name in mcps.keys() {
+                all_mcp_names.insert(name.clone());
+                if let Some(mcp) = managed_mcps.get_mut(name) {
+                    mcp.opencode_enabled = true;
+                }
+            }
+        }
+    }
+    
+    // 检查 Claude Code
+    if let Ok(claude_manager) = ClaudeCodeConfigManager::new() {
+        if let Ok(servers) = claude_manager.get_mcp_servers() {
+            for name in servers.keys() {
+                all_mcp_names.insert(name.clone());
+                if let Some(mcp) = managed_mcps.get_mut(name) {
+                    mcp.claude_enabled = true;
+                }
+            }
+        }
+    }
+    
+    // 检查 Codex
+    if let Ok(codex_manager) = CodexConfigManager::new() {
+        if let Ok(servers) = codex_manager.get_mcp_servers() {
+            for name in servers.keys() {
+                all_mcp_names.insert(name.clone());
+                if let Some(mcp) = managed_mcps.get_mut(name) {
+                    mcp.codex_enabled = true;
+                }
+            }
+        }
+    }
+    
+    // 检查 Gemini
+    if let Ok(gemini_manager) = GeminiConfigManager::new() {
+        if let Ok(servers) = gemini_manager.get_mcp_servers() {
+            for name in servers.keys() {
+                all_mcp_names.insert(name.clone());
+                if let Some(mcp) = managed_mcps.get_mut(name) {
+                    mcp.gemini_enabled = true;
+                }
+            }
+        }
+    }
+    
+    // 检查 Cursor
+    if let Ok(cursor_manager) = CursorConfigManager::new() {
+        if let Ok(servers) = cursor_manager.get_mcp_servers() {
+            for name in servers.keys() {
+                all_mcp_names.insert(name.clone());
+                if let Some(mcp) = managed_mcps.get_mut(name) {
+                    mcp.cursor_enabled = true;
+                }
+            }
+        }
+    }
+    
+    let mut result: Vec<ManagedMcp> = managed_mcps.into_values().collect();
+    result.sort_by(|a, b| a.name.cmp(&b.name));
+    
+    Ok(result)
+}
+
+/// 获取 MCP 统计信息
+#[tauri::command]
+pub fn get_mcp_stats(
+    config_manager: State<'_, Mutex<ConfigManager>>,
+) -> Result<McpStats, AppError> {
+    use crate::config::claude_code_manager::ClaudeCodeConfigManager;
+    use crate::config::codex_manager::CodexConfigManager;
+    use crate::config::gemini_manager::GeminiConfigManager;
+    use crate::config::cursor_manager::CursorConfigManager;
+    
+    let manager = config_manager.lock().map_err(|e| AppError::Custom(e.to_string()))?;
+    let mut stats = McpStats::default();
+    
+    // OpenCode
+    if let Ok(opencode_config) = manager.mcp().read_opencode_config() {
+        if let Some(mcps) = opencode_config.get("mcpServers").and_then(|m| m.as_object()) {
+            stats.opencode_count = mcps.len();
+        }
+    }
+    
+    // Claude Code
+    if let Ok(claude_manager) = ClaudeCodeConfigManager::new() {
+        if let Ok(servers) = claude_manager.get_mcp_servers() {
+            stats.claude_count = servers.len();
+        }
+    }
+    
+    // Codex
+    if let Ok(codex_manager) = CodexConfigManager::new() {
+        if let Ok(servers) = codex_manager.get_mcp_servers() {
+            stats.codex_count = servers.len();
+        }
+    }
+    
+    // Gemini
+    if let Ok(gemini_manager) = GeminiConfigManager::new() {
+        if let Ok(servers) = gemini_manager.get_mcp_servers() {
+            stats.gemini_count = servers.len();
+        }
+    }
+    
+    // Cursor
+    if let Ok(cursor_manager) = CursorConfigManager::new() {
+        if let Ok(servers) = cursor_manager.get_mcp_servers() {
+            stats.cursor_count = servers.len();
+        }
+    }
+    
+    Ok(stats)
+}
+
+/// 切换 MCP 在某个应用上的启用状态
+#[tauri::command]
+pub fn toggle_mcp_app(
+    mcp_name: String,
+    app: String,
+    enabled: bool,
+    config_manager: State<'_, Mutex<ConfigManager>>,
+) -> Result<(), AppError> {
+    use crate::config::claude_code_manager::{ClaudeCodeConfigManager, ClaudeMcpServer};
+    use crate::config::codex_manager::{CodexConfigManager, CodexMcpServer};
+    use crate::config::gemini_manager::{GeminiConfigManager, GeminiMcpServer};
+    use crate::config::cursor_manager::{CursorConfigManager, CursorMcpServer};
+    
+    let manager = config_manager.lock().map_err(|e| AppError::Custom(e.to_string()))?;
+    
+    // 获取 Ai Switch 中的 MCP 配置（作为源）
+    let ai_switch_config = manager.mcp().read_config()?;
+    let source_server = ai_switch_config.servers.get(&mcp_name);
+    
+    match app.as_str() {
+        "opencode" => {
+            if enabled {
+                // 同步到 OpenCode
+                manager.mcp().sync_to_opencode(Some(&[mcp_name]))?;
+            } else {
+                // 从 OpenCode 删除
+                manager.mcp().remove_from_opencode(&mcp_name)?;
+            }
+        }
+        "claude" => {
+            let claude_manager = ClaudeCodeConfigManager::new()
+                .map_err(|e| AppError::Custom(e))?;
+            
+            if enabled {
+                if let Some(server) = source_server {
+                    let claude_server = ClaudeMcpServer {
+                        command: server.command.as_ref().and_then(|c| c.first().cloned()),
+                        args: server.command.as_ref()
+                            .map(|c| c.iter().skip(1).cloned().collect())
+                            .unwrap_or_default(),
+                        env: server.environment.clone(),
+                        url: server.url.clone(),
+                        headers: server.headers.clone(),
+                    };
+                    claude_manager.add_mcp_server(&mcp_name, claude_server)
+                        .map_err(|e| AppError::Custom(e))?;
+                }
+            } else {
+                claude_manager.remove_mcp_server(&mcp_name)
+                    .map_err(|e| AppError::Custom(e))?;
+            }
+        }
+        "codex" => {
+            let codex_manager = CodexConfigManager::new()
+                .map_err(|e| AppError::Custom(e))?;
+            
+            if enabled {
+                if let Some(server) = source_server {
+                    if let Some(cmd) = &server.command {
+                        let codex_server = CodexMcpServer {
+                            command: cmd.clone(),
+                            env: server.environment.clone(),
+                        };
+                        codex_manager.add_mcp_server(&mcp_name, codex_server)
+                            .map_err(|e| AppError::Custom(e))?;
+                    }
+                }
+            } else {
+                codex_manager.remove_mcp_server(&mcp_name)
+                    .map_err(|e| AppError::Custom(e))?;
+            }
+        }
+        "gemini" => {
+            let gemini_manager = GeminiConfigManager::new()
+                .map_err(|e| AppError::Custom(e))?;
+            
+            if enabled {
+                if let Some(server) = source_server {
+                    let gemini_server = GeminiMcpServer {
+                        command: server.command.as_ref().and_then(|c| c.first().cloned()),
+                        args: server.command.as_ref()
+                            .map(|c| c.iter().skip(1).cloned().collect())
+                            .unwrap_or_default(),
+                        env: server.environment.clone(),
+                        url: server.url.clone(),
+                    };
+                    gemini_manager.add_mcp_server(&mcp_name, gemini_server)
+                        .map_err(|e| AppError::Custom(e))?;
+                }
+            } else {
+                gemini_manager.remove_mcp_server(&mcp_name)
+                    .map_err(|e| AppError::Custom(e))?;
+            }
+        }
+        "cursor" => {
+            let cursor_manager = CursorConfigManager::new()
+                .map_err(|e| AppError::Custom(e))?;
+            
+            if enabled {
+                if let Some(server) = source_server {
+                    let cursor_server = CursorMcpServer {
+                        command: server.command.as_ref().and_then(|c| c.first().cloned()),
+                        args: server.command.as_ref()
+                            .map(|c| c.iter().skip(1).cloned().collect())
+                            .unwrap_or_default(),
+                        env: server.environment.clone(),
+                        url: server.url.clone(),
+                    };
+                    cursor_manager.add_mcp_server(&mcp_name, cursor_server)
+                        .map_err(|e| AppError::Custom(e))?;
+                }
+            } else {
+                cursor_manager.remove_mcp_server(&mcp_name)
+                    .map_err(|e| AppError::Custom(e))?;
+            }
+        }
+        _ => {
+            return Err(AppError::Custom(format!("不支持的应用: {}", app)));
+        }
+    }
+    
+    Ok(())
+}
+
+/// 从所有应用中删除 MCP
+#[tauri::command]
+pub fn delete_mcp_from_all(
+    mcp_name: String,
+    config_manager: State<'_, Mutex<ConfigManager>>,
+) -> Result<(), AppError> {
+    use crate::config::claude_code_manager::ClaudeCodeConfigManager;
+    use crate::config::codex_manager::CodexConfigManager;
+    use crate::config::gemini_manager::GeminiConfigManager;
+    use crate::config::cursor_manager::CursorConfigManager;
+    
+    let mut manager = config_manager.lock().map_err(|e| AppError::Custom(e.to_string()))?;
+    
+    // 从 Ai Switch 删除
+    let _ = manager.mcp_mut().delete_server(&mcp_name);
+    
+    // 从 OpenCode 删除
+    let _ = manager.mcp().remove_from_opencode(&mcp_name);
+    
+    // 从 Claude Code 删除
+    if let Ok(claude_manager) = ClaudeCodeConfigManager::new() {
+        let _ = claude_manager.remove_mcp_server(&mcp_name);
+    }
+    
+    // 从 Codex 删除
+    if let Ok(codex_manager) = CodexConfigManager::new() {
+        let _ = codex_manager.remove_mcp_server(&mcp_name);
+    }
+    
+    // 从 Gemini 删除
+    if let Ok(gemini_manager) = GeminiConfigManager::new() {
+        let _ = gemini_manager.remove_mcp_server(&mcp_name);
+    }
+    
+    // 从 Cursor 删除
+    if let Ok(cursor_manager) = CursorConfigManager::new() {
+        let _ = cursor_manager.remove_mcp_server(&mcp_name);
+    }
+    
+    Ok(())
 }

@@ -705,3 +705,52 @@ pub async fn diagnose_usage_data(db: State<'_, Arc<Database>>) -> Result<DataDia
         sample_records,
     })
 }
+
+// ============================================================================
+// 会话统计和工具调用统计
+// ============================================================================
+
+// 重新导出 schema 中的类型
+pub use crate::database::schema::{SessionStatsSummary, ToolCallStats};
+
+/// 获取会话统计汇总
+#[tauri::command]
+pub async fn get_session_stats_summary(
+    db: State<'_, Arc<Database>>,
+    period: String,
+    provider_id: Option<String>,
+) -> Result<SessionStatsSummary, String> {
+    let now = chrono::Utc::now().timestamp();
+    
+    let start_ts = match period.as_str() {
+        "24h" => Some(now - 24 * 60 * 60),
+        "7d" => Some(now - 7 * 24 * 60 * 60),
+        "30d" => Some(now - 30 * 24 * 60 * 60),
+        "all" => None,
+        _ => Some(now - 24 * 60 * 60),
+    };
+    
+    db.get_session_stats_summary(start_ts, Some(now), provider_id.as_deref())
+        .map_err(|e| format!("获取会话统计失败: {e}"))
+}
+
+/// 获取工具调用统计
+#[tauri::command]
+pub async fn get_tool_call_stats(
+    db: State<'_, Arc<Database>>,
+    period: String,
+    provider_id: Option<String>,
+) -> Result<Vec<ToolCallStats>, String> {
+    let now = chrono::Utc::now().timestamp();
+    
+    let start_ts = match period.as_str() {
+        "24h" => Some(now - 24 * 60 * 60),
+        "7d" => Some(now - 7 * 24 * 60 * 60),
+        "30d" => Some(now - 30 * 24 * 60 * 60),
+        "all" => None,
+        _ => Some(now - 24 * 60 * 60),
+    };
+    
+    db.get_tool_call_stats(start_ts, Some(now), provider_id.as_deref())
+        .map_err(|e| format!("获取工具调用统计失败: {e}"))
+}

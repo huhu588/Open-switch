@@ -307,6 +307,42 @@ impl McpConfigManager {
             .map_err(|e| format!("写入 opencode.json 失败: {}", e))
     }
 
+    /// 从 OpenCode 配置中删除指定的 MCP 服务器
+    pub fn remove_from_opencode(&self, server_name: &str) -> Result<(), String> {
+        if !self.opencode_json.exists() {
+            return Ok(());
+        }
+
+        let content = fs::read_to_string(&self.opencode_json)
+            .map_err(|e| format!("读取 opencode.json 失败: {}", e))?;
+        let mut opencode_data: serde_json::Value = serde_json::from_str(&content)
+            .map_err(|e| format!("解析 opencode.json 失败: {}", e))?;
+
+        // 从 mcp 字段中删除
+        if let Some(mcp) = opencode_data.get_mut("mcp").and_then(|m| m.as_object_mut()) {
+            mcp.remove(server_name);
+        }
+
+        // 写回 opencode.json
+        let content = serde_json::to_string_pretty(&opencode_data)
+            .map_err(|e| format!("序列化 opencode.json 失败: {}", e))?;
+
+        fs::write(&self.opencode_json, content)
+            .map_err(|e| format!("写入 opencode.json 失败: {}", e))
+    }
+
+    /// 读取 OpenCode 配置文件
+    pub fn read_opencode_config(&self) -> Result<serde_json::Value, String> {
+        if !self.opencode_json.exists() {
+            return Ok(serde_json::json!({}));
+        }
+
+        let content = fs::read_to_string(&self.opencode_json)
+            .map_err(|e| format!("读取 opencode.json 失败: {}", e))?;
+        serde_json::from_str(&content)
+            .map_err(|e| format!("解析 opencode.json 失败: {}", e))
+    }
+
     /// 同步 MCP 配置到项目级 opencode.json
     pub fn sync_to_project(&self, server_names: Option<&[String]>) -> Result<(), String> {
         let current_dir =

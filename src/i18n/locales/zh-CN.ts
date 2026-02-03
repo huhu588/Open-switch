@@ -236,7 +236,23 @@ export default {
     syncToOpenCode: '同步到 OpenCode',
     syncing: '同步中...',
     syncSuccess: '已同步到 ~/.opencode/opencode.json',
-    syncFailed: '同步失败'
+    syncFailed: '同步失败',
+    // 已部署应用
+    deployedApps: '已部署应用',
+    import: '导入',
+    importFromApp: '从应用导入 MCP',
+    importedCount: '已导入 {count} 个',
+    skippedCount: '跳过 {count} 个（已存在）',
+    failedCount: '失败 {count} 个',
+    noMcpToImport: '没有可导入的 MCP',
+    importFailed: '导入失败',
+    // MCP 管理
+    manage: 'MCP管理',
+    manageTitle: 'MCP 管理',
+    installed: '已安装',
+    searchMcp: '搜索 MCP...',
+    deleteFromAll: '从所有应用中删除',
+    totalMcps: '共 {count} 个 MCP'
   },
 
   // 备份页面
@@ -328,6 +344,7 @@ export default {
     locations: {
       globalOpencode: '全局 OpenCode',
       globalClaude: '全局 Claude',
+      globalCursor: '全局 Cursor',
       projectOpencode: '项目 OpenCode',
       projectClaude: '项目 Claude'
     },
@@ -335,6 +352,7 @@ export default {
     locationLabels: {
       GlobalOpenCode: '全局 OpenCode (~/.config/opencode/skills/)',
       GlobalClaude: '全局 Claude (~/.claude/skills/)',
+      GlobalCursor: '全局 Cursor (~/.cursor/skills/)',
       ProjectOpenCode: '项目 OpenCode (.opencode/skills/)',
       ProjectClaude: '项目 Claude (.claude/skills/)'
     },
@@ -379,7 +397,14 @@ export default {
     content: '规则内容',
     syncToCliTools: '同步到 CLI 工具',
     syncToCliToolsHint: '同时将规则内容写入对应 CLI 工具的系统提示文件',
-    selectInstallTarget: '请至少选择一个安装位置'
+    selectInstallTarget: '请至少选择一个安装位置',
+    // 规则管理
+    manage: '规则管理',
+    manageTitle: '规则管理',
+    installed: '已安装',
+    searchRule: '搜索规则...',
+    deleteFromAll: '从所有应用中删除',
+    totalRules: '共 {count} 个规则'
   },
 
   // 状态页面
@@ -647,10 +672,14 @@ export default {
     description: '查看 AI 模型的使用情况和成本统计',
     totalRequests: '总请求数',
     totalCost: '总成本',
-    totalTokens: '总 Token 数',
+    totalTokens: '总Token数',
+    textTokens: '文本Token数',
+    cursorTokenTooltip: '实际Token = 文本Token + 代码上下文Token + 缓存等（本地仅记录文本Token）',
     cacheTokens: '缓存 Token',
     cacheCreation: '创建',
     cacheHit: '命中',
+    totalDuration: '累计耗时',
+    conversations: '对话数',
     trend: '使用趋势',
     past24h: '过去 24 小时（按小时）',
     past7d: '过去 7 天',
@@ -734,6 +763,24 @@ export default {
     // 自动导入
     autoImport: '自动导入日志',
     autoImportDesc: '打开使用统计页面时自动导入本地日志',
-    autoImported: '已自动导入 {count} 条记录'
+    autoImported: '已自动导入 {count} 条记录',
+    // 会话统计
+    conversationStats: '对话统计',
+    totalConversations: '总对话数',
+    totalToolCalls: '工具调用数',
+    mcpCount: 'MCP 数量',
+    filesChanged: '文件变更',
+    codeChanges: '代码变更',
+    avgResponseTime: '平均响应时间',
+    avgThinkingTime: '平均思考时间',
+    totalTime: '总耗时',
+    // 工具调用统计
+    toolCallStats: '工具调用统计',
+    moreTools: '其他工具',
+    expand: '展开',
+    collapse: '收起',
+    toolTypes: '种工具',
+    calls: '次调用',
+    viewAll: '查看全部 ({count} 种)'
   }
 }

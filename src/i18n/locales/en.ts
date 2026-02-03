@@ -236,7 +236,23 @@ export default {
     syncToOpenCode: 'Sync to OpenCode',
     syncing: 'Syncing...',
     syncSuccess: 'Synced to ~/.opencode/opencode.json',
-    syncFailed: 'Sync failed'
+    syncFailed: 'Sync failed',
+    // Deployed apps
+    deployedApps: 'Deployed Apps',
+    import: 'Import',
+    importFromApp: 'Import MCP from App',
+    importedCount: 'Imported {count}',
+    skippedCount: 'Skipped {count} (existing)',
+    failedCount: 'Failed {count}',
+    noMcpToImport: 'No MCP to import',
+    importFailed: 'Import failed',
+    // MCP management
+    manage: 'MCP Management',
+    manageTitle: 'MCP Management',
+    installed: 'Installed',
+    searchMcp: 'Search MCP...',
+    deleteFromAll: 'Delete from all apps',
+    totalMcps: '{count} MCPs total'
   },
 
   // Backup page
@@ -328,6 +344,7 @@ export default {
     locations: {
       globalOpencode: 'Global OpenCode',
       globalClaude: 'Global Claude',
+      globalCursor: 'Global Cursor',
       projectOpencode: 'Project OpenCode',
       projectClaude: 'Project Claude'
     },
@@ -335,6 +352,7 @@ export default {
     locationLabels: {
       GlobalOpenCode: 'Global OpenCode (~/.config/opencode/skills/)',
       GlobalClaude: 'Global Claude (~/.claude/skills/)',
+      GlobalCursor: 'Global Cursor (~/.cursor/skills/)',
       ProjectOpenCode: 'Project OpenCode (.opencode/skills/)',
       ProjectClaude: 'Project Claude (.claude/skills/)'
     },
@@ -379,7 +397,14 @@ export default {
     content: 'Rule Content',
     syncToCliTools: 'Sync to CLI Tools',
     syncToCliToolsHint: 'Also write rule content to corresponding CLI tool system prompt files',
-    selectInstallTarget: 'Please select at least one install target'
+    selectInstallTarget: 'Please select at least one install target',
+    // Rule management
+    manage: 'Rule Management',
+    manageTitle: 'Rule Management',
+    installed: 'Installed',
+    searchRule: 'Search rule...',
+    deleteFromAll: 'Delete from all apps',
+    totalRules: '{count} rules total'
   },
 
   // Status page
@@ -648,9 +673,13 @@ export default {
     totalRequests: 'Total Requests',
     totalCost: 'Total Cost',
     totalTokens: 'Total Tokens',
+    textTokens: 'Text Tokens',
+    cursorTokenTooltip: 'Actual Tokens = Text Tokens + Code Context + Cache (Local only records text tokens)',
     cacheTokens: 'Cache Tokens',
     cacheCreation: 'Creation',
     cacheHit: 'Hits',
+    totalDuration: 'Total Time',
+    conversations: 'Conversations',
     trend: 'Usage Trend',
     past24h: 'Past 24 Hours (Hourly)',
     past7d: 'Past 7 Days',
@@ -734,6 +763,24 @@ export default {
     // Auto import
     autoImport: 'Auto Import Logs',
     autoImportDesc: 'Automatically import local logs when opening usage statistics',
-    autoImported: 'Auto imported {count} records'
+    autoImported: 'Auto imported {count} records',
+    // Session stats
+    conversationStats: 'Conversation Stats',
+    totalConversations: 'Total Conversations',
+    totalToolCalls: 'Tool Calls',
+    mcpCount: 'MCP Count',
+    filesChanged: 'Files Changed',
+    codeChanges: 'Code Changes',
+    avgResponseTime: 'Avg Response Time',
+    avgThinkingTime: 'Avg Thinking Time',
+    totalTime: 'Total Time',
+    // Tool call stats
+    toolCallStats: 'Tool Call Stats',
+    moreTools: 'more tools',
+    expand: 'Expand',
+    collapse: 'Collapse',
+    toolTypes: 'tool types',
+    calls: 'calls',
+    viewAll: 'View all ({count} types)'
   }
 }

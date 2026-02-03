@@ -654,6 +654,8 @@ pub enum SkillsLocation {
     ProjectClaude,
     /// 全局 Claude: ~/.claude/skills/<name>/SKILL.md
     GlobalClaude,
+    /// 全局 Cursor: ~/.cursor/skills/<name>/SKILL.md
+    GlobalCursor,
 }
 
 impl std::fmt::Display for SkillsLocation {
@@ -663,6 +665,7 @@ impl std::fmt::Display for SkillsLocation {
             SkillsLocation::GlobalOpenCode => write!(f, "全局 OpenCode"),
             SkillsLocation::ProjectClaude => write!(f, "项目 Claude"),
             SkillsLocation::GlobalClaude => write!(f, "全局 Claude"),
+            SkillsLocation::GlobalCursor => write!(f, "全局 Cursor"),
         }
     }
 }
@@ -692,6 +695,8 @@ pub struct ManagedSkill {
     pub gemini_enabled: bool,
     /// 是否安装到 OpenCode (~/.config/opencode/skills/)
     pub opencode_enabled: bool,
+    /// 是否安装到 Cursor (~/.cursor/skills/)
+    pub cursor_enabled: bool,
     /// 源文件路径（用于复制）
     pub source_path: Option<String>,
     /// 是否来自本地（已安装）
@@ -721,9 +726,17 @@ fn get_skills_paths() -> Vec<(PathBuf, SkillsLocation)> {
     if let Some(home_dir) = dirs::home_dir() {
         let global_opencode_path = home_dir.join(".config").join("opencode").join("skills");
         let global_claude_path = home_dir.join(".claude").join("skills");
+        // Cursor 支持两种目录名: skills 和 skills-cursor
+        let global_cursor_path = home_dir.join(".cursor").join("skills");
+        let global_cursor_path_alt = home_dir.join(".cursor").join("skills-cursor");
 
         paths.push((global_opencode_path, SkillsLocation::GlobalOpenCode));
         paths.push((global_claude_path, SkillsLocation::GlobalClaude));
+        paths.push((global_cursor_path, SkillsLocation::GlobalCursor));
+        // 如果 skills-cursor 目录存在，也扫描它
+        if global_cursor_path_alt.exists() {
+            paths.push((global_cursor_path_alt, SkillsLocation::GlobalCursor));
+        }
     }
     
     if let Ok(cwd) = std::env::current_dir() {
@@ -743,6 +756,14 @@ fn get_tool_skills_paths() -> Vec<(String, PathBuf)> {
         paths.push(("codex".to_string(), home_dir.join(".codex").join("skills")));
         paths.push(("gemini".to_string(), home_dir.join(".gemini").join("skills")));
         paths.push(("opencode".to_string(), home_dir.join(".config").join("opencode").join("skills")));
+        // Cursor 优先使用 skills-cursor 目录，如果不存在则使用 skills
+        let cursor_skills_cursor = home_dir.join(".cursor").join("skills-cursor");
+        let cursor_skills = home_dir.join(".cursor").join("skills");
+        if cursor_skills_cursor.exists() {
+            paths.push(("cursor".to_string(), cursor_skills_cursor));
+        } else {
+            paths.push(("cursor".to_string(), cursor_skills));
+        }
     }
     
     paths
@@ -784,6 +805,7 @@ pub fn get_managed_skills() -> Result<Vec<ManagedSkill>, AppError> {
                             codex_enabled: false,
                             gemini_enabled: false,
                             opencode_enabled: false,
+                            cursor_enabled: false,
                             source_path: Some(skill_file.to_string_lossy().to_string()),
                             is_local: true,
                         });
@@ -799,6 +821,7 @@ pub fn get_managed_skills() -> Result<Vec<ManagedSkill>, AppError> {
                             "codex" => skill.codex_enabled = true,
                             "gemini" => skill.gemini_enabled = true,
                             "opencode" => skill.opencode_enabled = true,
+                            "cursor" => skill.cursor_enabled = true,
                             _ => {}
                         }
                         
@@ -829,6 +852,15 @@ pub async fn toggle_skill_tool(skill_name: String, tool: String, enabled: bool) 
         "codex" => home_dir.join(".codex").join("skills").join(&skill_name),
         "gemini" => home_dir.join(".gemini").join("skills").join(&skill_name),
         "opencode" => home_dir.join(".config").join("opencode").join("skills").join(&skill_name),
+        "cursor" => {
+            // Cursor 优先使用 skills-cursor 目录
+            let cursor_skills_cursor = home_dir.join(".cursor").join("skills-cursor");
+            if cursor_skills_cursor.exists() {
+                cursor_skills_cursor.join(&skill_name)
+            } else {
+                home_dir.join(".cursor").join("skills").join(&skill_name)
+            }
+        },
         _ => return Err(AppError::Custom(format!("未知的工具: {}", tool))),
     };
     
@@ -897,6 +929,7 @@ pub fn get_skills_stats() -> Result<SkillsStats, AppError> {
         codex_count: 0,
         gemini_count: 0,
         opencode_count: 0,
+        cursor_count: 0,
     };
     
     for (tool, base_path) in &tool_paths {
@@ -917,6 +950,7 @@ pub fn get_skills_stats() -> Result<SkillsStats, AppError> {
             "codex" => stats.codex_count = count,
             "gemini" => stats.gemini_count = count,
             "opencode" => stats.opencode_count = count,
+            "cursor" => stats.cursor_count = count,
             _ => {}
         }
     }
@@ -931,6 +965,7 @@ pub struct SkillsStats {
     pub codex_count: usize,
     pub gemini_count: usize,
     pub opencode_count: usize,
+    pub cursor_count: usize,
 }
 
 /// 扫描已安装的 Skills
@@ -1043,6 +1078,12 @@ pub async fn install_skills(input: InstallSkillsInput) -> Result<InstallSkillsRe
             std::env::current_dir()
                 .map_err(|e| AppError::Custom(format!("无法获取当前目录: {}", e)))?
                 .join(".claude")
+                .join("skills")
+        }
+        "global_cursor" => {
+            dirs::home_dir()
+                .ok_or_else(|| AppError::Custom("无法获取主目录".to_string()))?
+                .join(".cursor")
                 .join("skills")
         }
         _ => return Err(AppError::Custom("无效的安装位置".to_string())),

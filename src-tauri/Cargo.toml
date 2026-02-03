@@ -1,6 +1,6 @@
 [package]
 name = "ai-switch"
-version = "1.5.0"
+version = "1.6.0"
 edition = "2021"
 description = "Ai Switch工具"
 authors = ["moguw <weiyiding0@gmail.com>"]
@@ -38,6 +38,9 @@ tower-http = { version = "0.5", features = ["cors"] }
 
 # 数据库
 rusqlite = { version = "0.31", features = ["bundled"] }
+
+# Token 计算
+tiktoken-rs = "0.9.1"
 
 # 精确小数计算
 rust_decimal = "1.34"

@@ -134,6 +134,70 @@ impl Database {
         )
         .map_err(|e| AppError::Database(format!("创建 proxy_live_backup 表失败: {e}")))?;
 
+        // 5. 会话统计表
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS session_stats (
+                session_id TEXT PRIMARY KEY,
+                source TEXT NOT NULL,
+                provider_id TEXT,
+                conversation_count INTEGER NOT NULL DEFAULT 0,
+                tool_call_count INTEGER NOT NULL DEFAULT 0,
+                files_changed INTEGER NOT NULL DEFAULT 0,
+                lines_added INTEGER NOT NULL DEFAULT 0,
+                lines_deleted INTEGER NOT NULL DEFAULT 0,
+                response_time_ms INTEGER NOT NULL DEFAULT 0,
+                thinking_time_ms INTEGER NOT NULL DEFAULT 0,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            )",
+            [],
+        )
+        .map_err(|e| AppError::Database(format!("创建 session_stats 表失败: {e}")))?;
+
+        // 创建 session_stats 索引
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_session_stats_source 
+             ON session_stats(source)",
+            [],
+        )
+        .map_err(|e| AppError::Database(format!("创建 session_stats source 索引失败: {e}")))?;
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_session_stats_created_at 
+             ON session_stats(created_at)",
+            [],
+        )
+        .map_err(|e| AppError::Database(format!("创建 session_stats created_at 索引失败: {e}")))?;
+
+        // 6. 工具调用统计表
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS tool_calls (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                tool_name TEXT NOT NULL,
+                call_count INTEGER NOT NULL DEFAULT 1,
+                created_at INTEGER NOT NULL,
+                FOREIGN KEY (session_id) REFERENCES session_stats(session_id)
+            )",
+            [],
+        )
+        .map_err(|e| AppError::Database(format!("创建 tool_calls 表失败: {e}")))?;
+
+        // 创建 tool_calls 索引
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_tool_calls_session 
+             ON tool_calls(session_id)",
+            [],
+        )
+        .map_err(|e| AppError::Database(format!("创建 tool_calls session 索引失败: {e}")))?;
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_tool_calls_tool_name 
+             ON tool_calls(tool_name)",
+            [],
+        )
+        .map_err(|e| AppError::Database(format!("创建 tool_calls tool_name 索引失败: {e}")))?;
+
         Ok(())
     }
 
@@ -311,6 +375,10 @@ pub struct ProviderStats {
     pub provider_name: String,
     pub request_count: u64,
     pub total_tokens: u64,
+    pub total_input_tokens: u64,
+    pub total_output_tokens: u64,
+    pub total_cache_creation_tokens: u64,
+    pub total_cache_read_tokens: u64,
     pub total_cost: String,
     pub success_rate: f32,
 }
@@ -325,6 +393,31 @@ pub struct ProxyConfigDb {
     pub takeover_claude: bool,
     pub takeover_codex: bool,
     pub takeover_gemini: bool,
+}
+
+/// 会话统计汇总
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionStatsSummary {
+    pub total_conversations: u64,
+    pub total_tool_calls: u64,
+    pub total_files_changed: u64,
+    pub total_lines_added: u64,
+    pub total_lines_deleted: u64,
+    pub total_response_time_ms: u64,
+    pub total_thinking_time_ms: u64,
+    pub avg_response_time_ms: f64,
+    pub avg_thinking_time_ms: f64,
+    pub session_count: u64,
+}
+
+/// 工具调用统计
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolCallStats {
+    pub tool_name: String,
+    pub call_count: u64,
+    pub percentage: f64,
 }
 
 impl Default for ProxyConfigDb {
@@ -754,6 +847,10 @@ impl Database {
                 COALESCE(provider_name, provider_id) as provider_name,
                 COUNT(*) as request_count,
                 COALESCE(SUM(input_tokens + output_tokens), 0) as total_tokens,
+                COALESCE(SUM(input_tokens), 0) as total_input_tokens,
+                COALESCE(SUM(output_tokens), 0) as total_output_tokens,
+                COALESCE(SUM(cache_creation_tokens), 0) as total_cache_creation_tokens,
+                COALESCE(SUM(cache_read_tokens), 0) as total_cache_read_tokens,
                 COALESCE(SUM(CAST(total_cost_usd AS REAL)), 0) as total_cost,
                 COALESCE(SUM(CASE WHEN status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END), 0) as success_count
             FROM proxy_request_logs
@@ -771,7 +868,7 @@ impl Database {
         let mut stats = Vec::new();
         while let Some(row) = rows.next().map_err(|e| AppError::Database(format!("读取行失败: {e}")))? {
             let request_count: i64 = row.get(2).map_err(|e| AppError::Database(format!("读取字段失败: {e}")))?;
-            let success_count: i64 = row.get(5).map_err(|e| AppError::Database(format!("读取字段失败: {e}")))?;
+            let success_count: i64 = row.get(9).map_err(|e| AppError::Database(format!("读取字段失败: {e}")))?;
             let success_rate = if request_count > 0 {
                 (success_count as f32 / request_count as f32) * 100.0
             } else {
@@ -783,7 +880,11 @@ impl Database {
                 provider_name: row.get(1).map_err(|e| AppError::Database(format!("读取字段失败: {e}")))?,
                 request_count: request_count as u64,
                 total_tokens: row.get::<_, i64>(3).map_err(|e| AppError::Database(format!("读取字段失败: {e}")))? as u64,
-                total_cost: format!("{:.6}", row.get::<_, f64>(4).map_err(|e| AppError::Database(format!("读取字段失败: {e}")))?),
+                total_input_tokens: row.get::<_, i64>(4).map_err(|e| AppError::Database(format!("读取字段失败: {e}")))? as u64,
+                total_output_tokens: row.get::<_, i64>(5).map_err(|e| AppError::Database(format!("读取字段失败: {e}")))? as u64,
+                total_cache_creation_tokens: row.get::<_, i64>(6).map_err(|e| AppError::Database(format!("读取字段失败: {e}")))? as u64,
+                total_cache_read_tokens: row.get::<_, i64>(7).map_err(|e| AppError::Database(format!("读取字段失败: {e}")))? as u64,
+                total_cost: format!("{:.6}", row.get::<_, f64>(8).map_err(|e| AppError::Database(format!("读取字段失败: {e}")))?),
                 success_rate,
             });
         }
@@ -889,8 +990,17 @@ impl Database {
     pub fn clear_usage_stats(&self) -> Result<(), AppError> {
         let conn = lock_conn!(self.conn);
 
+        // 清除代理请求日志
         conn.execute("DELETE FROM proxy_request_logs", [])
-            .map_err(|e| AppError::Database(format!("清除使用统计失败: {e}")))?;
+            .map_err(|e| AppError::Database(format!("清除代理请求日志失败: {e}")))?;
+
+        // 清除工具调用统计（需要在 session_stats 之前删除，因为外键约束）
+        conn.execute("DELETE FROM tool_calls", [])
+            .map_err(|e| AppError::Database(format!("清除工具调用统计失败: {e}")))?;
+
+        // 清除会话统计
+        conn.execute("DELETE FROM session_stats", [])
+            .map_err(|e| AppError::Database(format!("清除会话统计失败: {e}")))?;
 
         Ok(())
     }
@@ -908,5 +1018,264 @@ impl Database {
         .map_err(|e| AppError::Database(format!("清理旧日志失败: {e}")))?;
 
         Ok(deleted as u64)
+    }
+
+    // ============================================================================
+    // 会话统计相关方法
+    // ============================================================================
+
+    /// 插入或更新会话统计
+    pub fn upsert_session_stats(
+        &self,
+        session_id: &str,
+        source: &str,
+        provider_id: Option<&str>,
+        conversation_count: u32,
+        tool_call_count: u32,
+        files_changed: u32,
+        lines_added: u32,
+        lines_deleted: u32,
+        response_time_ms: u64,
+        thinking_time_ms: u64,
+        created_at: i64,
+    ) -> Result<(), AppError> {
+        let conn = lock_conn!(self.conn);
+        let now = chrono::Utc::now().timestamp();
+
+        conn.execute(
+            "INSERT INTO session_stats (
+                session_id, source, provider_id, conversation_count, tool_call_count,
+                files_changed, lines_added, lines_deleted, response_time_ms, thinking_time_ms,
+                created_at, updated_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+            ON CONFLICT(session_id) DO UPDATE SET
+                conversation_count = conversation_count + excluded.conversation_count,
+                tool_call_count = tool_call_count + excluded.tool_call_count,
+                files_changed = files_changed + excluded.files_changed,
+                lines_added = lines_added + excluded.lines_added,
+                lines_deleted = lines_deleted + excluded.lines_deleted,
+                response_time_ms = response_time_ms + excluded.response_time_ms,
+                thinking_time_ms = thinking_time_ms + excluded.thinking_time_ms,
+                updated_at = excluded.updated_at",
+            rusqlite::params![
+                session_id,
+                source,
+                provider_id,
+                conversation_count,
+                tool_call_count,
+                files_changed,
+                lines_added,
+                lines_deleted,
+                response_time_ms,
+                thinking_time_ms,
+                created_at,
+                now,
+            ],
+        )
+        .map_err(|e| AppError::Database(format!("插入会话统计失败: {e}")))?;
+
+        Ok(())
+    }
+
+    /// 插入工具调用记录
+    pub fn insert_tool_call(
+        &self,
+        session_id: &str,
+        tool_name: &str,
+        call_count: u32,
+        created_at: i64,
+    ) -> Result<(), AppError> {
+        let conn = lock_conn!(self.conn);
+
+        conn.execute(
+            "INSERT INTO tool_calls (session_id, tool_name, call_count, created_at)
+             VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params![session_id, tool_name, call_count, created_at],
+        )
+        .map_err(|e| AppError::Database(format!("插入工具调用记录失败: {e}")))?;
+
+        Ok(())
+    }
+
+    /// 获取会话统计汇总
+    pub fn get_session_stats_summary(
+        &self,
+        start_ts: Option<i64>,
+        end_ts: Option<i64>,
+        provider_id: Option<&str>,
+    ) -> Result<SessionStatsSummary, AppError> {
+        let conn = lock_conn!(self.conn);
+
+        let mut conditions: Vec<String> = Vec::new();
+        let mut params: Vec<rusqlite::types::Value> = Vec::new();
+
+        if let Some(start) = start_ts {
+            conditions.push("created_at >= ?".to_string());
+            params.push(start.into());
+        }
+        if let Some(end) = end_ts {
+            conditions.push("created_at <= ?".to_string());
+            params.push(end.into());
+        }
+        if let Some(pid) = provider_id {
+            conditions.push("provider_id = ?".to_string());
+            params.push(pid.to_string().into());
+        }
+
+        let where_clause = if conditions.is_empty() {
+            String::new()
+        } else {
+            format!("WHERE {}", conditions.join(" AND "))
+        };
+
+        let sql = format!(
+            "SELECT
+                COALESCE(SUM(conversation_count), 0) as total_conversations,
+                COALESCE(SUM(tool_call_count), 0) as total_tool_calls,
+                COALESCE(SUM(files_changed), 0) as total_files_changed,
+                COALESCE(SUM(lines_added), 0) as total_lines_added,
+                COALESCE(SUM(lines_deleted), 0) as total_lines_deleted,
+                COALESCE(SUM(response_time_ms), 0) as total_response_time_ms,
+                COALESCE(SUM(thinking_time_ms), 0) as total_thinking_time_ms,
+                COUNT(*) as session_count
+            FROM session_stats
+            {where_clause}"
+        );
+
+        let mut stmt = conn.prepare(&sql)
+            .map_err(|e| AppError::Database(format!("准备查询失败: {e}")))?;
+
+        let result = stmt.query_row(rusqlite::params_from_iter(params), |row| {
+            let total_conversations: i64 = row.get(0)?;
+            let total_tool_calls: i64 = row.get(1)?;
+            let total_files_changed: i64 = row.get(2)?;
+            let total_lines_added: i64 = row.get(3)?;
+            let total_lines_deleted: i64 = row.get(4)?;
+            let total_response_time_ms: i64 = row.get(5)?;
+            let total_thinking_time_ms: i64 = row.get(6)?;
+            let session_count: i64 = row.get(7)?;
+
+            let avg_response_time_ms = if total_conversations > 0 {
+                total_response_time_ms as f64 / total_conversations as f64
+            } else {
+                0.0
+            };
+            let avg_thinking_time_ms = if total_conversations > 0 {
+                total_thinking_time_ms as f64 / total_conversations as f64
+            } else {
+                0.0
+            };
+
+            Ok(SessionStatsSummary {
+                total_conversations: total_conversations as u64,
+                total_tool_calls: total_tool_calls as u64,
+                total_files_changed: total_files_changed as u64,
+                total_lines_added: total_lines_added as u64,
+                total_lines_deleted: total_lines_deleted as u64,
+                total_response_time_ms: total_response_time_ms as u64,
+                total_thinking_time_ms: total_thinking_time_ms as u64,
+                avg_response_time_ms,
+                avg_thinking_time_ms,
+                session_count: session_count as u64,
+            })
+        });
+
+        result.map_err(|e| AppError::Database(format!("查询会话统计汇总失败: {e}")))
+    }
+
+    /// 获取工具调用统计
+    pub fn get_tool_call_stats(
+        &self,
+        start_ts: Option<i64>,
+        end_ts: Option<i64>,
+        provider_id: Option<&str>,
+    ) -> Result<Vec<ToolCallStats>, AppError> {
+        let conn = lock_conn!(self.conn);
+
+        let mut conditions: Vec<String> = Vec::new();
+        let mut params: Vec<rusqlite::types::Value> = Vec::new();
+
+        // 需要 JOIN session_stats 来过滤 provider_id
+        let join_clause = if provider_id.is_some() {
+            "JOIN session_stats s ON t.session_id = s.session_id"
+        } else {
+            ""
+        };
+
+        if let Some(start) = start_ts {
+            conditions.push("t.created_at >= ?".to_string());
+            params.push(start.into());
+        }
+        if let Some(end) = end_ts {
+            conditions.push("t.created_at <= ?".to_string());
+            params.push(end.into());
+        }
+        if let Some(pid) = provider_id {
+            conditions.push("s.provider_id = ?".to_string());
+            params.push(pid.to_string().into());
+        }
+
+        let where_clause = if conditions.is_empty() {
+            String::new()
+        } else {
+            format!("WHERE {}", conditions.join(" AND "))
+        };
+
+        let sql = format!(
+            "SELECT
+                t.tool_name,
+                COALESCE(SUM(t.call_count), 0) as total_calls
+            FROM tool_calls t
+            {join_clause}
+            {where_clause}
+            GROUP BY t.tool_name
+            ORDER BY total_calls DESC"
+        );
+
+        let mut stmt = conn.prepare(&sql)
+            .map_err(|e| AppError::Database(format!("准备查询失败: {e}")))?;
+
+        let mut rows = stmt.query(rusqlite::params_from_iter(params))
+            .map_err(|e| AppError::Database(format!("查询工具调用统计失败: {e}")))?;
+
+        let mut stats: Vec<ToolCallStats> = Vec::new();
+        let mut total_calls: u64 = 0;
+
+        while let Some(row) = rows.next().map_err(|e| AppError::Database(format!("读取行失败: {e}")))? {
+            let tool_name: String = row.get(0).map_err(|e| AppError::Database(format!("读取字段失败: {e}")))?;
+            let call_count: i64 = row.get(1).map_err(|e| AppError::Database(format!("读取字段失败: {e}")))?;
+            total_calls += call_count as u64;
+            stats.push(ToolCallStats {
+                tool_name,
+                call_count: call_count as u64,
+                percentage: 0.0, // 稍后计算
+            });
+        }
+
+        // 计算百分比
+        for stat in &mut stats {
+            stat.percentage = if total_calls > 0 {
+                (stat.call_count as f64 / total_calls as f64) * 100.0
+            } else {
+                0.0
+            };
+        }
+
+        Ok(stats)
+    }
+
+    /// 检查会话统计是否存在
+    pub fn session_stats_exists(&self, session_id: &str) -> bool {
+        let conn = match self.conn.lock() {
+            Ok(c) => c,
+            Err(_) => return false,
+        };
+
+        conn.query_row(
+            "SELECT 1 FROM session_stats WHERE session_id = ?1",
+            [session_id],
+            |_| Ok(()),
+        )
+        .is_ok()
     }
 }
