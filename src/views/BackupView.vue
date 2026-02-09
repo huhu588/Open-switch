@@ -273,6 +273,18 @@ function toggleAllSkills() { selectedSkills.value = allSkillsSelected.value ? []
 const allUsageSourcesSelected = computed(() => selectedUsageSources.value.length === usageSourceOptions.length)
 function toggleAllUsageSources() { selectedUsageSources.value = allUsageSourcesSelected.value ? [] : usageSourceOptions.map(s => s.key) }
 
+// 开发环境全选/取消
+function toggleAllDevEnvs() {
+  if (Object.keys(selectedDevEnvs.value).length === detectedEnvs.value.length) {
+    selectedDevEnvs.value = {}
+  } else {
+    selectedDevEnvs.value = {}
+    detectedEnvs.value.forEach(e => {
+      if (e.current_version) selectedDevEnvs.value[e.id] = e.current_version
+    })
+  }
+}
+
 // 对话源全选
 const allChatSourcesSelected = computed(() => extractedData.value.size > 0 && [...extractedData.value.keys()].every(k => selectedChatSources.value.includes(k)))
 function toggleAllChatSources() { selectedChatSources.value = allChatSourcesSelected.value ? [] : [...extractedData.value.keys()] }
@@ -686,7 +698,7 @@ function formatTimestamp(ts?: string | number | null): string {
               <label class="flex items-center gap-2 cursor-pointer" @click.stop>
                 <input type="checkbox"
                   :checked="Object.keys(selectedDevEnvs).length === detectedEnvs.length"
-                  @change="() => { if (Object.keys(selectedDevEnvs).length === detectedEnvs.length) selectedDevEnvs.value = {}; else { selectedDevEnvs.value = {}; detectedEnvs.forEach(e => { if (e.current_version) selectedDevEnvs.value[e.id] = e.current_version }) } }"
+                  @change="toggleAllDevEnvs"
                   class="w-3.5 h-3.5 rounded border-border accent-accent" />
                 <span class="text-sm font-medium">开发环境（版本号）</span>
               </label>

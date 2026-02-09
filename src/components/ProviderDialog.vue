@@ -8,7 +8,6 @@ import {
   PROVIDER_PRESETS, 
   getModelsByType,
   getNpmPackageByProtocol,
-  getProtocolDisplayName,
   type ApiProtocol
 } from '@/config/providerPresets'
 import { MODEL_TYPES, type ModelType } from '@/config/modelTypes'

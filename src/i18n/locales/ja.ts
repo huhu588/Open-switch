@@ -505,7 +505,6 @@ export default {
     deleteFromAllConfirm: '全てのアプリから "{name}" を削除しますか？',
     deleteFromAllConfirmMultiple: '全てのアプリからルール "{name}" を削除しますか？（{count}件のコピー）',
     toggleFailed: '切り替え失敗: {error}',
-    deleted: '{name} を削除しました',
     deleteFailed: '削除失敗: {error}',
     clickToAddRule: '右上のボタンをクリックしてルールを追加',
     deployedTo: 'デプロイ先',

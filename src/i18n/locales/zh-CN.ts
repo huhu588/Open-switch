@@ -510,7 +510,6 @@ export default {
     deleteFromAllConfirm: '确定要从所有应用中删除 "{name}" 吗？',
     deleteFromAllConfirmMultiple: '确定要从所有应用中删除规则 "{name}" 吗？（共 {count} 个副本）',
     toggleFailed: '切换失败: {error}',
-    deleted: '已删除 {name}',
     deleteFailed: '删除失败: {error}',
     clickToAddRule: '点击右上角添加规则',
     deployedTo: '已部署到',

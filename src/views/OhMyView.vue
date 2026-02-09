@@ -179,7 +179,7 @@ async function installAndConfigure() {
   installLog.value = t('ohmy.startingInstall') + '\n'
   
   try {
-    const result = await invoke<string>('install_and_configure', {
+    await invoke<string>('install_and_configure', {
       agents: agentModels.value
     })
     // 成功时清空日志，不需要显示

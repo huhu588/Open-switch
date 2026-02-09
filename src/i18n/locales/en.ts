@@ -506,7 +506,6 @@ export default {
     deleteFromAllConfirm: 'Are you sure you want to delete "{name}" from all apps?',
     deleteFromAllConfirmMultiple: 'Are you sure you want to delete rule "{name}" from all apps? ({count} copies)',
     toggleFailed: 'Toggle failed: {error}',
-    deleted: 'Deleted {name}',
     deleteFailed: 'Delete failed: {error}',
     clickToAddRule: 'Click the top-right button to add rules',
     deployedTo: 'Deployed To',
