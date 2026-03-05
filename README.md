@@ -1,5 +1,5 @@
 # Ai Switch
-
+有bug，很久没修复了，最近忙于工作
 > OpenCode 配置管理工具 | v1.6.0
 
 二开ai管理工具，可用于管理 OpenCode，Claude code，Gemini cil，codex，cursor 的 Provider、Model、MCP 服务器、技能和规则配置。
