@@ -1,0 +1,92 @@
+/* Sub2api 嵌入页面样式 */
+
+.sub2api-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.sub2api-header {
+  flex-shrink: 0;
+}
+
+.page-header-left {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sub2api-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sub2api-content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.sub2api-not-running {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sub2api-iframe-container {
+  flex: 1;
+  position: relative;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid oklch(var(--b3));
+  background: oklch(var(--b1));
+}
+
+.sub2api-iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: white;
+}
+
+.sub2api-iframe.hidden {
+  opacity: 0;
+  position: absolute;
+}
+
+.sub2api-iframe.loaded {
+  opacity: 1;
+  position: relative;
+}
+
+.sub2api-loading,
+.sub2api-error {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  z-index: 1;
+}
+
+.sub2api-loading {
+  color: oklch(var(--p));
+}
+
+.sub2api-error {
+  color: oklch(var(--er));
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}

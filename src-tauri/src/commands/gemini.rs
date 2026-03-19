@@ -1,178 +1,279 @@
-// Gemini CLI 相关 Tauri 命令
+use std::time::Instant;
+use tauri::AppHandle;
 
-use crate::config::gemini_manager::{
-    GeminiConfigManager, GeminiMcpServer, GeminiProvider, GeminiSettings,
-};
-use serde::Serialize;
-use std::collections::HashMap;
+use crate::models::gemini::{GeminiAccount, GeminiOAuthCompletePayload, GeminiOAuthStartResponse};
+use crate::modules::{gemini_account, gemini_oauth, logger};
 
-/// Gemini 配置状态
-#[derive(Debug, Serialize)]
-pub struct GeminiStatus {
-    pub is_configured: bool,
-    pub has_api_key: bool,
-    pub api_key_masked: Option<String>,
-    pub base_url: Option<String>,
-    pub model: Option<String>,
-    pub auth_mode: Option<String>,
-    pub mcp_server_count: usize,
+#[tauri::command]
+pub fn list_gemini_accounts() -> Result<Vec<GeminiAccount>, String> {
+    Ok(gemini_account::list_accounts())
 }
 
-/// 获取 Gemini 配置状态
 #[tauri::command]
-pub async fn get_gemini_status() -> Result<GeminiStatus, String> {
-    let manager = GeminiConfigManager::new()?;
-    
-    let api_key = manager.get_api_key()?;
-    let has_api_key = api_key.is_some();
-    let api_key_masked = api_key.map(|k| {
-        if k.len() > 8 {
-            format!("{}...{}", &k[..4], &k[k.len()-4..])
-        } else {
-            "****".to_string()
+pub fn delete_gemini_account(account_id: String) -> Result<(), String> {
+    gemini_account::remove_account(&account_id)
+}
+
+#[tauri::command]
+pub fn delete_gemini_accounts(account_ids: Vec<String>) -> Result<(), String> {
+    gemini_account::remove_accounts(&account_ids)
+}
+
+#[tauri::command]
+pub async fn import_gemini_from_json(
+    app: AppHandle,
+    json_content: String,
+) -> Result<Vec<GeminiAccount>, String> {
+    let mut accounts = gemini_account::import_from_json(&json_content)?;
+
+    for account in accounts.iter_mut() {
+        match gemini_account::refresh_account_token(&account.id).await {
+            Ok(refreshed) => *account = refreshed,
+            Err(error) => {
+                logger::log_warn(&format!(
+                    "[Gemini Command] JSON 导入后刷新失败: account_id={}, error={}",
+                    account.id, error
+                ));
+                let _ =
+                    gemini_account::set_account_status(&account.id, Some("error"), Some(&error));
+                account.status = Some("error".to_string());
+                account.status_reason = Some(error);
+            }
         }
-    });
-    
-    let base_url = manager.get_base_url()?;
-    let model = manager.get_model()?;
-    let auth_mode = manager.get_auth_mode()?;
-    let mcp_servers = manager.get_mcp_servers()?;
-    
-    Ok(GeminiStatus {
-        is_configured: manager.is_configured(),
-        has_api_key,
-        api_key_masked,
-        base_url,
-        model,
-        auth_mode,
-        mcp_server_count: mcp_servers.len(),
-    })
+    }
+
+    let _ = crate::modules::tray::update_tray_menu(&app);
+    Ok(accounts)
 }
 
-/// 获取 Gemini 设置
 #[tauri::command]
-pub async fn get_gemini_settings() -> Result<GeminiSettings, String> {
-    let manager = GeminiConfigManager::new()?;
-    manager.read_settings()
+pub async fn import_gemini_from_local(app: AppHandle) -> Result<Vec<GeminiAccount>, String> {
+    let mut account = match gemini_account::import_from_local()? {
+        Some(a) => a,
+        None => return Err("未找到本地 Gemini 登录信息".to_string()),
+    };
+
+    match gemini_account::refresh_account_token(&account.id).await {
+        Ok(refreshed) => account = refreshed,
+        Err(error) => {
+            logger::log_warn(&format!(
+                "[Gemini Command] 本地导入后刷新失败: account_id={}, error={}",
+                account.id, error
+            ));
+            let _ = gemini_account::set_account_status(&account.id, Some("error"), Some(&error));
+            account.status = Some("error".to_string());
+            account.status_reason = Some(error);
+        }
+    }
+
+    let _ = crate::modules::tray::update_tray_menu(&app);
+    Ok(vec![account])
 }
 
-/// 保存 Gemini 设置
 #[tauri::command]
-pub async fn save_gemini_settings(settings: GeminiSettings) -> Result<(), String> {
-    let manager = GeminiConfigManager::new()?;
-    manager.write_settings(&settings)
+pub fn export_gemini_accounts(account_ids: Vec<String>) -> Result<String, String> {
+    gemini_account::export_accounts(&account_ids)
 }
 
-/// 设置 Gemini API Key
 #[tauri::command]
-pub async fn set_gemini_api_key(api_key: String) -> Result<(), String> {
-    let manager = GeminiConfigManager::new()?;
-    manager.set_api_key(&api_key)
+pub async fn refresh_gemini_token(
+    app: AppHandle,
+    account_id: String,
+) -> Result<GeminiAccount, String> {
+    let started_at = Instant::now();
+    logger::log_info(&format!(
+        "[Gemini Command] 手动刷新账号开始: account_id={}",
+        account_id
+    ));
+
+    match gemini_account::refresh_account_token(&account_id).await {
+        Ok(account) => {
+            if let Err(e) = gemini_account::run_quota_alert_if_needed() {
+                logger::log_warn(&format!("[QuotaAlert][Gemini] 预警检查失败: {}", e));
+            }
+            let _ = crate::modules::tray::update_tray_menu(&app);
+            logger::log_info(&format!(
+                "[Gemini Command] 刷新完成: account_id={}, email={}, elapsed={}ms",
+                account.id,
+                account.email,
+                started_at.elapsed().as_millis()
+            ));
+            Ok(account)
+        }
+        Err(err) => {
+            logger::log_warn(&format!(
+                "[Gemini Command] 刷新失败: account_id={}, elapsed={}ms, error={}",
+                account_id,
+                started_at.elapsed().as_millis(),
+                err
+            ));
+            let _ = gemini_account::set_account_status(&account_id, Some("error"), Some(&err));
+            Err(err)
+        }
+    }
 }
 
-/// 设置 Gemini Base URL
 #[tauri::command]
-pub async fn set_gemini_base_url(base_url: Option<String>) -> Result<(), String> {
-    let manager = GeminiConfigManager::new()?;
-    manager.set_base_url(base_url)
+pub async fn refresh_all_gemini_tokens(app: AppHandle) -> Result<i32, String> {
+    let started_at = Instant::now();
+    logger::log_info("[Gemini Command] 批量刷新开始");
+
+    let results = gemini_account::refresh_all_tokens().await?;
+    let success_count = results.iter().filter(|(_, item)| item.is_ok()).count();
+    let failed_count = results.len().saturating_sub(success_count);
+
+    if success_count > 0 {
+        if let Err(e) = gemini_account::run_quota_alert_if_needed() {
+            logger::log_warn(&format!(
+                "[QuotaAlert][Gemini] 全量刷新后预警检查失败: {}",
+                e
+            ));
+        }
+    }
+
+    let _ = crate::modules::tray::update_tray_menu(&app);
+    logger::log_info(&format!(
+        "[Gemini Command] 批量刷新完成: success={}, failed={}, elapsed={}ms",
+        success_count,
+        failed_count,
+        started_at.elapsed().as_millis()
+    ));
+    Ok(success_count as i32)
 }
 
-/// 设置 Gemini 模型
 #[tauri::command]
-pub async fn set_gemini_model(model: Option<String>) -> Result<(), String> {
-    let manager = GeminiConfigManager::new()?;
-    manager.set_model(model)
+pub async fn gemini_oauth_login_start() -> Result<GeminiOAuthStartResponse, String> {
+    logger::log_info("[Gemini Command] OAuth 登录开始");
+    gemini_oauth::start_login().await
 }
 
-/// 设置 Gemini 认证模式
 #[tauri::command]
-pub async fn set_gemini_auth_mode(auth_mode: String) -> Result<(), String> {
-    let manager = GeminiConfigManager::new()?;
-    manager.set_auth_mode(&auth_mode)
+pub async fn gemini_oauth_login_complete(
+    app: AppHandle,
+    login_id: String,
+) -> Result<GeminiAccount, String> {
+    logger::log_info(&format!(
+        "[Gemini Command] OAuth 等待完成: login_id={}",
+        login_id
+    ));
+
+    let payload = gemini_oauth::complete_login(&login_id).await?;
+    let mut account = gemini_account::upsert_account(payload)?;
+
+    match gemini_account::refresh_account_token(&account.id).await {
+        Ok(refreshed) => {
+            account = refreshed;
+        }
+        Err(error) => {
+            logger::log_warn(&format!(
+                "[Gemini OAuth] 登录后自动刷新配额失败: account_id={}, error={}",
+                account.id, error
+            ));
+            let _ = gemini_account::set_account_status(&account.id, Some("error"), Some(&error));
+            account.status = Some("error".to_string());
+            account.status_reason = Some(error);
+        }
+    }
+
+    let _ = crate::modules::tray::update_tray_menu(&app);
+    logger::log_info(&format!(
+        "[Gemini Command] OAuth 登录完成: account_id={}, email={}",
+        account.id, account.email
+    ));
+    Ok(account)
 }
 
-/// 应用 Provider 到 Gemini
 #[tauri::command]
-pub async fn apply_provider_to_gemini(provider: GeminiProvider) -> Result<(), String> {
-    let manager = GeminiConfigManager::new()?;
-    manager.apply_provider(&provider)
+pub fn gemini_oauth_login_cancel(login_id: Option<String>) -> Result<(), String> {
+    logger::log_info(&format!(
+        "[Gemini Command] OAuth 取消: login_id={}",
+        login_id.as_deref().unwrap_or("<none>")
+    ));
+    gemini_oauth::cancel_login(login_id.as_deref())
 }
 
-/// 获取 Gemini MCP 服务器列表
 #[tauri::command]
-pub async fn get_gemini_mcp_servers() -> Result<HashMap<String, GeminiMcpServer>, String> {
-    let manager = GeminiConfigManager::new()?;
-    manager.get_mcp_servers()
+pub fn gemini_oauth_submit_callback_url(
+    login_id: String,
+    callback_url: String,
+) -> Result<(), String> {
+    gemini_oauth::submit_callback_url(login_id.as_str(), callback_url.as_str())
 }
 
-/// 添加 Gemini MCP 服务器
 #[tauri::command]
-pub async fn add_gemini_mcp_server(name: String, server: GeminiMcpServer) -> Result<(), String> {
-    let manager = GeminiConfigManager::new()?;
-    manager.add_mcp_server(&name, server)
+pub async fn add_gemini_account_with_token(
+    app: AppHandle,
+    access_token: String,
+) -> Result<GeminiAccount, String> {
+    let payload = GeminiOAuthCompletePayload {
+        email: "unknown@gmail.com".to_string(),
+        auth_id: None,
+        name: None,
+        access_token,
+        refresh_token: None,
+        id_token: None,
+        token_type: None,
+        scope: None,
+        expiry_date: None,
+        selected_auth_type: Some("oauth-personal".to_string()),
+        project_id: None,
+        tier_id: None,
+        plan_name: None,
+        gemini_auth_raw: None,
+        gemini_usage_raw: None,
+        status: None,
+        status_reason: None,
+    };
+
+    let mut account = gemini_account::upsert_account(payload)?;
+    match gemini_account::refresh_account_token(&account.id).await {
+        Ok(refreshed) => account = refreshed,
+        Err(error) => {
+            logger::log_warn(&format!(
+                "[Gemini Command] Token 导入后刷新失败: account_id={}, error={}",
+                account.id, error
+            ));
+            let _ = gemini_account::set_account_status(&account.id, Some("error"), Some(&error));
+            account.status = Some("error".to_string());
+            account.status_reason = Some(error);
+        }
+    }
+
+    let _ = crate::modules::tray::update_tray_menu(&app);
+    Ok(account)
 }
 
-/// 删除 Gemini MCP 服务器
 #[tauri::command]
-pub async fn remove_gemini_mcp_server(name: String) -> Result<(), String> {
-    let manager = GeminiConfigManager::new()?;
-    manager.remove_mcp_server(&name)
+pub fn update_gemini_account_tags(
+    account_id: String,
+    tags: Vec<String>,
+) -> Result<GeminiAccount, String> {
+    gemini_account::update_account_tags(&account_id, tags)
 }
 
-/// 同步 MCP 服务器到 Gemini
 #[tauri::command]
-pub async fn sync_mcp_to_gemini(servers: HashMap<String, GeminiMcpServer>) -> Result<(), String> {
-    let manager = GeminiConfigManager::new()?;
-    manager.sync_mcp_servers(servers)
+pub fn get_gemini_accounts_index_path() -> Result<String, String> {
+    gemini_account::accounts_index_path_string()
 }
 
-/// 获取 GEMINI.md 内容
 #[tauri::command]
-pub async fn get_gemini_md() -> Result<Option<String>, String> {
-    let manager = GeminiConfigManager::new()?;
-    manager.read_gemini_md()
-}
+pub fn inject_gemini_account(app: AppHandle, account_id: String) -> Result<String, String> {
+    let started_at = Instant::now();
+    logger::log_info(&format!(
+        "[Gemini Switch] 开始切换账号: account_id={}",
+        account_id
+    ));
 
-/// 保存 GEMINI.md 内容
-#[tauri::command]
-pub async fn save_gemini_md(content: String) -> Result<(), String> {
-    let manager = GeminiConfigManager::new()?;
-    manager.write_gemini_md(&content)
-}
+    let account = gemini_account::load_account(&account_id)
+        .ok_or_else(|| format!("Gemini account not found: {}", account_id))?;
+    gemini_account::inject_to_gemini(&account_id)?;
+    let _ = crate::modules::tray::update_tray_menu(&app);
 
-/// 清除 Gemini Provider 配置（API Key、Base URL）
-#[tauri::command]
-pub async fn clear_gemini_config() -> Result<(), String> {
-    let manager = GeminiConfigManager::new()?;
-    manager.clear_provider_config()
-}
-
-/// 设置 Gemini 认证模式为 API Key（跳过 OAuth 登录）
-/// 写入 settings.json 中的 security.auth.selectedType: "gemini-api-key"
-#[tauri::command]
-pub async fn set_gemini_api_key_auth_mode() -> Result<(), String> {
-    let manager = GeminiConfigManager::new()?;
-    manager.set_api_key_auth_mode()
-}
-
-/// 设置 Gemini 认证模式为 OAuth（Google 官方）
-/// 写入 settings.json 中的 security.auth.selectedType: "oauth-personal"
-#[tauri::command]
-pub async fn set_gemini_oauth_auth_mode() -> Result<(), String> {
-    let manager = GeminiConfigManager::new()?;
-    manager.set_oauth_auth_mode()
-}
-
-/// 获取 Gemini 当前认证类型
-#[tauri::command]
-pub async fn get_gemini_auth_selected_type() -> Result<Option<String>, String> {
-    let manager = GeminiConfigManager::new()?;
-    manager.get_auth_selected_type()
-}
-
-/// 清除 Gemini 认证类型设置
-#[tauri::command]
-pub async fn clear_gemini_auth_selected_type() -> Result<(), String> {
-    let manager = GeminiConfigManager::new()?;
-    manager.clear_auth_selected_type()
+    logger::log_info(&format!(
+        "[Gemini Switch] 切号成功: account_id={}, email={}, elapsed={}ms",
+        account.id,
+        account.email,
+        started_at.elapsed().as_millis()
+    ));
+    Ok(format!("切换完成: {}", account.email))
 }

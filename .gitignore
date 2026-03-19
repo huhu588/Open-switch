@@ -1,130 +1,41 @@
-# ===================
-# Dependencies
-# ===================
-node_modules/
-.pnpm-store/
-
-# ===================
-# Build outputs
-# ===================
-target/
-dist/
-dist-ssr/
-*.local
-
-# ===================
-# Lock files
-# ===================
-# Note: package-lock.json should be committed for reproducible builds
-Cargo.lock
-bun.lock
-pnpm-lock.yaml
-yarn.lock
-
-# ===================
-# Tauri
-# ===================
-src-tauri/target/
-src-tauri/gen/schemas/
-.tauri/
-
-# Tauri signing keys (NEVER commit these!)
-*.key
-*.pem
-tauri-*.key
-
-# ===================
-# Config files with sensitive data
-# ===================
-.opencode/
-src-tauri/.opencode/
-*.env
-*.env.*
-!*.env.example
-.env.local
-.env.*.local
-
-# Secrets and credentials
-**/secrets/
-**/credentials/
-*.secret
-*.credentials
-config.local.*
-
-# ===================
-# IDE and Editor
-# ===================
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-.project
-.classpath
-.settings/
-
-# Cursor IDE
-.cursor/
-.cursorignore
-
-# ===================
-# OS generated files
-# ===================
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
-desktop.ini
-
-# ===================
 # Logs
-# ===================
+logs
 *.log
-logs/
+*.dmg
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+lerna-debug.log*
 
-# ===================
-# Testing
-# ===================
-coverage/
-.nyc_output/
+node_modules
+dist
+dist-ssr
+*.local
 
-# ===================
-# Cache
-# ===================
-.cache/
-.parcel-cache/
-.eslintcache
-.stylelintcache
-*.tsbuildinfo
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
 
-# ===================
-# Temporary files
-# ===================
-tmp/
-temp/
-*.tmp
-*.temp
+# Local AI instructions
+AGENTS.md
 
-# ===================
-# Project specific
-# ===================
-# Pencil design files (design tool files, not needed in repo)
-*.pen
+locale-check-report.md
 
-# Test scripts
-test-*.ps1
-test-*.sh
+docs/platform-integration-guide.md
+docs/plugin-architecture-design.md
 
-# MCP server config (may contain sensitive data)
-mcps/
+# Build caches
+.vite
+src-tauri/target/
 
-# Local development notes
-*.local.md
-WARP.md
+# Runtime caches
+src-tauri/arms_cache/
+arms.biz.trace.*

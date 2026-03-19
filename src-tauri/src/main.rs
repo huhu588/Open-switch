@@ -1,9 +1,6 @@
-// ai-switch Tauri 入口点
-// 防止 Windows 上出现额外的控制台窗口
+// Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    if let Err(err) = ai_switch::run() {
-        eprintln!("启动失败: {}", err);
-    }
+    ai_switch_lib::run()
 }

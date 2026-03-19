@@ -1,132 +1,401 @@
-// Codex 相关 Tauri 命令
-
-use crate::config::codex_manager::{
-    CodexConfigManager, CodexMcpServer, CodexModelProvider, CodexProvider,
+use crate::models::codex::{CodexAccount, CodexQuota, CodexTokens};
+use crate::modules::{
+    codex_account, codex_oauth, codex_quota, config, logger, opencode_auth, process,
 };
-use serde::Serialize;
-use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
+use tauri::AppHandle;
+use tauri::Emitter;
 
-/// Codex 配置状态
-#[derive(Debug, Serialize)]
-pub struct CodexStatus {
-    pub is_configured: bool,
-    pub has_auth: bool,
-    pub provider_count: usize,
-    pub mcp_server_count: usize,
-    pub credentials_store: Option<String>,
+static CODEX_POST_REFRESH_CHECK_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
+
+/// 列出所有 Codex 账号
+#[tauri::command]
+pub fn list_codex_accounts() -> Result<Vec<CodexAccount>, String> {
+    Ok(codex_account::list_accounts())
 }
 
-/// 获取 Codex 配置状态
+/// 获取当前激活的 Codex 账号
 #[tauri::command]
-pub async fn get_codex_status() -> Result<CodexStatus, String> {
-    let manager = CodexConfigManager::new()?;
-    
-    let auth = manager.read_auth()?;
-    let has_auth = auth.access_token.is_some();
-    
-    let config = manager.read_config()?;
-    
-    Ok(CodexStatus {
-        is_configured: manager.is_configured(),
-        has_auth,
-        provider_count: config.model_providers.len(),
-        mcp_server_count: config.mcp_servers.len(),
-        credentials_store: config.cli_auth_credentials_store,
-    })
+pub fn get_current_codex_account() -> Result<Option<CodexAccount>, String> {
+    Ok(codex_account::get_current_account())
 }
 
-/// 获取 Codex 模型提供商列表
+/// 刷新账号资料（团队名/结构）
 #[tauri::command]
-pub async fn get_codex_providers() -> Result<HashMap<String, CodexModelProvider>, String> {
-    let manager = CodexConfigManager::new()?;
-    manager.get_model_providers()
+pub async fn refresh_codex_account_profile(account_id: String) -> Result<CodexAccount, String> {
+    codex_account::refresh_account_profile(&account_id).await
 }
 
-/// 添加 Codex 模型提供商
+/// 切换 Codex 账号（包含 token 刷新检查）
 #[tauri::command]
-pub async fn add_codex_provider(name: String, provider: CodexModelProvider) -> Result<(), String> {
-    let manager = CodexConfigManager::new()?;
-    manager.add_model_provider(&name, provider)
+pub async fn switch_codex_account(
+    app: AppHandle,
+    account_id: String,
+) -> Result<CodexAccount, String> {
+    let _ = codex_account::prepare_account_for_injection(&account_id).await?;
+
+    // 切换账号（写入 auth.json）
+    let account = codex_account::switch_account(&account_id)?;
+
+    // 同步更新 Codex 默认实例的绑定账号（不同步到 Antigravity，因为账号体系不同）
+    if let Err(e) = crate::modules::codex_instance::update_default_settings(
+        Some(Some(account_id.clone())),
+        None,
+        Some(false),
+    ) {
+        logger::log_warn(&format!("更新 Codex 默认实例绑定账号失败: {}", e));
+    } else {
+        logger::log_info(&format!(
+            "已同步更新 Codex 默认实例绑定账号: {}",
+            account_id
+        ));
+    }
+
+    let user_config = config::get_user_config();
+    let mut opencode_updated = false;
+    if user_config.opencode_auth_overwrite_on_switch {
+        match opencode_auth::replace_openai_entry_from_codex(&account) {
+            Ok(()) => {
+                opencode_updated = true;
+            }
+            Err(e) => {
+                logger::log_warn(&format!("OpenCode auth.json 更新跳过: {}", e));
+            }
+        }
+    } else {
+        logger::log_info("已关闭切换 Codex 时覆盖 OpenCode 登录信息");
+    }
+
+    if user_config.opencode_sync_on_switch {
+        if user_config.opencode_auth_overwrite_on_switch && opencode_updated {
+            if process::is_opencode_running() {
+                if let Err(e) = process::close_opencode(20) {
+                    logger::log_warn(&format!("OpenCode 关闭失败: {}", e));
+                }
+            } else {
+                logger::log_info("OpenCode 未在运行，准备启动");
+            }
+            if let Err(e) = process::start_opencode_with_path(Some(&user_config.opencode_app_path))
+            {
+                logger::log_warn(&format!("OpenCode 启动失败: {}", e));
+            }
+        } else if !user_config.opencode_auth_overwrite_on_switch {
+            logger::log_info("OpenCode 登录覆盖已关闭，跳过自动重启");
+        } else {
+            logger::log_info("OpenCode 未更新 auth.json，跳过启动/重启");
+        }
+    } else {
+        logger::log_info("已关闭 OpenCode 自动重启");
+    }
+
+    if user_config.codex_launch_on_switch {
+        #[cfg(target_os = "macos")]
+        if process::is_codex_running() {
+            logger::log_info("检测到 Codex 正在运行，将按默认实例 PID 逻辑重启");
+        }
+        match crate::commands::codex_instance::codex_start_instance("__default__".to_string()).await
+        {
+            Ok(_) => {}
+            Err(e) => {
+                logger::log_warn(&format!("Codex 启动失败: {}", e));
+                if e.starts_with("APP_PATH_NOT_FOUND:") {
+                    let _ = app.emit(
+                        "app:path_missing",
+                        serde_json::json!({ "app": "codex", "retry": { "kind": "default" } }),
+                    );
+                }
+            }
+        }
+    } else {
+        logger::log_info("已关闭切换 Codex 时自动启动 Codex App");
+    }
+
+    let _ = crate::modules::tray::update_tray_menu(&app);
+    Ok(account)
 }
 
-/// 删除 Codex 模型提供商
-#[tauri::command]
-pub async fn remove_codex_provider(name: String) -> Result<(), String> {
-    let manager = CodexConfigManager::new()?;
-    manager.remove_model_provider(&name)
+async fn run_codex_post_refresh_checks(app: &AppHandle) {
+    if CODEX_POST_REFRESH_CHECK_IN_PROGRESS.swap(true, Ordering::SeqCst) {
+        logger::log_info("[AutoSwitch][Codex] 后置检查进行中，跳过本次执行");
+        return;
+    }
+
+    let mut switched = false;
+
+    match codex_account::pick_auto_switch_target_if_needed() {
+        Ok(Some(target)) => {
+            let target_id = target.id.clone();
+            match switch_codex_account(app.clone(), target_id.clone()).await {
+                Ok(switched_account) => {
+                    logger::log_info(&format!(
+                        "[AutoSwitch][Codex] 自动切号完成: target_id={}, email={}",
+                        switched_account.id, switched_account.email
+                    ));
+                    switched = true;
+                }
+                Err(e) => {
+                    logger::log_warn(&format!(
+                        "[AutoSwitch][Codex] 自动切号失败: target_id={}, error={}",
+                        target_id, e
+                    ));
+                }
+            }
+        }
+        Ok(None) => {}
+        Err(e) => {
+            logger::log_warn(&format!("[AutoSwitch][Codex] 自动切号检查失败: {}", e));
+        }
+    }
+
+    if !switched {
+        if let Err(e) = codex_account::run_quota_alert_if_needed() {
+            logger::log_warn(&format!("[QuotaAlert][Codex] 预警检查失败: {}", e));
+        }
+    }
+
+    CODEX_POST_REFRESH_CHECK_IN_PROGRESS.store(false, Ordering::SeqCst);
 }
 
-/// 应用 Provider 到 Codex
+/// 删除 Codex 账号
 #[tauri::command]
-pub async fn apply_provider_to_codex(provider: CodexProvider) -> Result<(), String> {
-    let manager = CodexConfigManager::new()?;
-    manager.apply_provider(&provider)
+pub fn delete_codex_account(account_id: String) -> Result<(), String> {
+    codex_account::remove_account(&account_id)
 }
 
-/// 获取 Codex MCP 服务器列表
+/// 批量删除 Codex 账号
 #[tauri::command]
-pub async fn get_codex_mcp_servers() -> Result<HashMap<String, CodexMcpServer>, String> {
-    let manager = CodexConfigManager::new()?;
-    manager.get_mcp_servers()
+pub fn delete_codex_accounts(account_ids: Vec<String>) -> Result<(), String> {
+    codex_account::remove_accounts(&account_ids)
 }
 
-/// 添加 Codex MCP 服务器
+/// 从本地 auth.json 导入账号
 #[tauri::command]
-pub async fn add_codex_mcp_server(name: String, server: CodexMcpServer) -> Result<(), String> {
-    let manager = CodexConfigManager::new()?;
-    manager.add_mcp_server(&name, server)
+pub fn import_codex_from_local(app: AppHandle) -> Result<CodexAccount, String> {
+    let account = codex_account::import_from_local()?;
+    let _ = crate::modules::tray::update_tray_menu(&app);
+    Ok(account)
 }
 
-/// 删除 Codex MCP 服务器
+/// 从 JSON 字符串导入账号
 #[tauri::command]
-pub async fn remove_codex_mcp_server(name: String) -> Result<(), String> {
-    let manager = CodexConfigManager::new()?;
-    manager.remove_mcp_server(&name)
+pub fn import_codex_from_json(json_content: String) -> Result<Vec<CodexAccount>, String> {
+    codex_account::import_from_json(&json_content)
 }
 
-/// 同步 MCP 服务器到 Codex
+/// 导出 Codex 账号
 #[tauri::command]
-pub async fn sync_mcp_to_codex(servers: HashMap<String, CodexMcpServer>) -> Result<(), String> {
-    let manager = CodexConfigManager::new()?;
-    manager.sync_mcp_servers(servers)
+pub fn export_codex_accounts(account_ids: Vec<String>) -> Result<String, String> {
+    codex_account::export_accounts(&account_ids)
 }
 
-/// 获取 AGENTS.md 内容
+/// 从本地文件导入 Codex 账号
 #[tauri::command]
-pub async fn get_agents_md() -> Result<Option<String>, String> {
-    let manager = CodexConfigManager::new()?;
-    manager.read_agents_md()
+pub fn import_codex_from_files(
+    file_paths: Vec<String>,
+) -> Result<codex_account::CodexFileImportResult, String> {
+    codex_account::import_from_files(file_paths)
 }
 
-/// 保存 AGENTS.md 内容
+/// 刷新单个账号配额
 #[tauri::command]
-pub async fn save_agents_md(content: String) -> Result<(), String> {
-    let manager = CodexConfigManager::new()?;
-    manager.write_agents_md(&content)
+pub async fn refresh_codex_quota(app: AppHandle, account_id: String) -> Result<CodexQuota, String> {
+    let result = codex_quota::refresh_account_quota(&account_id).await;
+    if result.is_ok() {
+        run_codex_post_refresh_checks(&app).await;
+        let _ = crate::modules::tray::update_tray_menu(&app);
+    }
+    result
 }
 
-/// 设置 Codex API Key 并跳过 OAuth 登录
-/// 直接配置 API Key 和 model_provider，避免 OAuth 登录流程
 #[tauri::command]
-pub async fn set_codex_api_key_skip_oauth(
-    api_key: String,
-    base_url: String,
-    provider_name: String,
+pub async fn refresh_current_codex_quota(app: AppHandle) -> Result<(), String> {
+    let Some(account) = codex_account::get_current_account() else {
+        return Err("未找到当前 Codex 账号".to_string());
+    };
+    if account.is_api_key_auth() {
+        return Ok(());
+    }
+
+    let result = codex_quota::refresh_account_quota(&account.id).await;
+    if result.is_ok() {
+        run_codex_post_refresh_checks(&app).await;
+        let _ = crate::modules::tray::update_tray_menu(&app);
+        Ok(())
+    } else {
+        Err(result
+            .err()
+            .unwrap_or_else(|| "刷新 Codex 配额失败".to_string()))
+    }
+}
+
+/// 刷新所有账号配额
+#[tauri::command]
+pub async fn refresh_all_codex_quotas(app: AppHandle) -> Result<i32, String> {
+    let results = codex_quota::refresh_all_quotas().await?;
+    let success_count = results.iter().filter(|(_, r)| r.is_ok()).count();
+    if success_count > 0 {
+        run_codex_post_refresh_checks(&app).await;
+    }
+    let _ = crate::modules::tray::update_tray_menu(&app);
+    Ok(success_count as i32)
+}
+
+async fn save_codex_oauth_tokens(tokens: CodexTokens) -> Result<CodexAccount, String> {
+    let account = codex_account::upsert_account(tokens)?;
+
+    if let Err(e) = codex_quota::refresh_account_quota(&account.id).await {
+        logger::log_error(&format!("刷新配额失败: {}", e));
+    }
+
+    let loaded =
+        codex_account::load_account(&account.id).ok_or_else(|| "账号保存后无法读取".to_string())?;
+    logger::log_info(&format!(
+        "Codex OAuth 账号已保存: account_id={}, email={}",
+        loaded.id, loaded.email
+    ));
+    Ok(loaded)
+}
+
+/// OAuth：开始登录（返回 loginId + authUrl）
+#[tauri::command]
+pub async fn codex_oauth_login_start(
+    app_handle: AppHandle,
+) -> Result<codex_oauth::CodexOAuthLoginStartResponse, String> {
+    logger::log_info("Codex OAuth start 命令触发");
+    let response = codex_oauth::start_oauth_login(app_handle).await?;
+    logger::log_info(&format!(
+        "Codex OAuth start 命令成功: login_id={}",
+        response.login_id
+    ));
+    Ok(response)
+}
+
+/// OAuth：浏览器授权完成后按 loginId 完成登录
+#[tauri::command]
+pub async fn codex_oauth_login_completed(login_id: String) -> Result<CodexAccount, String> {
+    let started_at_ms = chrono::Utc::now().timestamp_millis();
+    logger::log_info(&format!(
+        "Codex OAuth completed 命令开始: login_id={}, started_at_ms={}",
+        login_id, started_at_ms
+    ));
+    let tokens = match codex_oauth::complete_oauth_login(&login_id).await {
+        Ok(tokens) => tokens,
+        Err(e) => {
+            logger::log_error(&format!(
+                "Codex OAuth completed 命令失败: login_id={}, duration_ms={}, error={}",
+                login_id,
+                chrono::Utc::now().timestamp_millis() - started_at_ms,
+                e
+            ));
+            return Err(e);
+        }
+    };
+    let account = save_codex_oauth_tokens(tokens).await?;
+    logger::log_info(&format!(
+        "Codex OAuth completed 命令成功: login_id={}, duration_ms={}, account_id={}, account_email={}",
+        login_id,
+        chrono::Utc::now().timestamp_millis() - started_at_ms,
+        account.id,
+        account.email
+    ));
+    Ok(account)
+}
+
+/// OAuth：按 loginId 取消登录（login_id 为空时取消当前流程）
+#[tauri::command]
+pub fn codex_oauth_login_cancel(login_id: Option<String>) -> Result<(), String> {
+    logger::log_info(&format!(
+        "Codex OAuth cancel 命令触发: login_id={}",
+        login_id.as_deref().unwrap_or("<none>")
+    ));
+    let result = codex_oauth::cancel_oauth_flow_for(login_id.as_deref());
+    logger::log_info(&format!(
+        "Codex OAuth cancel 命令返回: {:?}",
+        result.as_ref().map(|_| "ok").map_err(|e| e)
+    ));
+    result
+}
+
+/// OAuth：手动提交回调链接（用于本地端口不可达时）
+#[tauri::command]
+pub fn codex_oauth_submit_callback_url(
+    app_handle: AppHandle,
+    login_id: String,
+    callback_url: String,
 ) -> Result<(), String> {
-    let manager = CodexConfigManager::new()?;
-    manager.set_api_key_skip_oauth(&api_key, &base_url, &provider_name)
+    codex_oauth::submit_callback_url(login_id.as_str(), callback_url.as_str())?;
+    let payload = serde_json::json!({ "loginId": login_id });
+    let _ = app_handle.emit("codex-oauth-login-completed", payload.clone());
+    let _ = app_handle.emit("ghcp-oauth-login-completed", payload);
+    Ok(())
 }
 
-/// 清除 Codex API Key 配置（恢复 OAuth 登录）
+/// 通过 Token 添加账号
 #[tauri::command]
-pub async fn clear_codex_api_key() -> Result<(), String> {
-    let manager = CodexConfigManager::new()?;
-    manager.clear_api_key()
+pub async fn add_codex_account_with_token(
+    id_token: String,
+    access_token: String,
+    refresh_token: Option<String>,
+) -> Result<CodexAccount, String> {
+    let tokens = CodexTokens {
+        id_token,
+        access_token,
+        refresh_token,
+    };
+
+    let account = codex_account::upsert_account(tokens)?;
+
+    // 刷新配额
+    if let Err(e) = codex_quota::refresh_account_quota(&account.id).await {
+        logger::log_error(&format!("刷新配额失败: {}", e));
+    }
+
+    codex_account::load_account(&account.id).ok_or_else(|| "账号保存后无法读取".to_string())
 }
 
-/// 获取 Codex 当前 API Key
+/// 通过 API Key 添加账号
 #[tauri::command]
-pub async fn get_codex_api_key() -> Result<Option<String>, String> {
-    let manager = CodexConfigManager::new()?;
-    manager.get_api_key()
+pub fn add_codex_account_with_api_key(
+    api_key: String,
+    api_base_url: Option<String>,
+) -> Result<CodexAccount, String> {
+    let account = codex_account::upsert_api_key_account(api_key, api_base_url)?;
+    codex_account::load_account(&account.id).ok_or_else(|| "账号保存后无法读取".to_string())
+}
+
+#[tauri::command]
+pub fn update_codex_account_name(account_id: String, name: String) -> Result<CodexAccount, String> {
+    codex_account::update_account_name(&account_id, name)
+}
+
+#[tauri::command]
+pub fn update_codex_api_key_credentials(
+    account_id: String,
+    api_key: String,
+    api_base_url: Option<String>,
+) -> Result<CodexAccount, String> {
+    codex_account::update_api_key_credentials(&account_id, api_key, api_base_url)
+}
+
+#[tauri::command]
+pub async fn update_codex_account_tags(
+    account_id: String,
+    tags: Vec<String>,
+) -> Result<CodexAccount, String> {
+    codex_account::update_account_tags(&account_id, tags)
+}
+
+/// 检查 Codex OAuth 端口是否被占用
+#[tauri::command]
+pub fn is_codex_oauth_port_in_use() -> Result<bool, String> {
+    let port = codex_oauth::get_callback_port();
+    process::is_port_in_use(port)
+}
+
+/// 关闭占用 Codex OAuth 端口的进程
+#[tauri::command]
+pub fn close_codex_oauth_port() -> Result<u32, String> {
+    let port = codex_oauth::get_callback_port();
+    let killed = process::kill_port_processes(port)?;
+    Ok(killed as u32)
 }

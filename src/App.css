@@ -1,0 +1,117 @@
+@import './styles/base.css';
+@import './styles/layout.css';
+@import './styles/components.css';
+@import './components/QuickSettingsPopover.css';
+@import './styles/settings-shared.css';
+@import './styles/pages.css';
+
+.quota-alert-modal-content {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.quota-alert-modal-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border-light);
+  background: var(--bg-tertiary);
+}
+
+.quota-alert-modal-row span {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.quota-alert-modal-row strong {
+  color: var(--text-primary);
+  font-size: 13px;
+  text-align: right;
+  word-break: break-word;
+}
+
+.quota-alert-modal-row--stack {
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.quota-alert-modal-row--stack strong {
+  text-align: left;
+}
+
+.app-path-missing-modal {
+  max-width: 560px;
+}
+
+.app-path-missing-desc {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.app-path-missing-error {
+  margin: 8px 0 0;
+  color: var(--danger);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.update-quick-action {
+  position: fixed;
+  top: 56px;
+  left: 120px;
+  z-index: 1200;
+}
+
+.update-quick-action-btn {
+  height: 36px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+
+.update-quick-action-btn strong {
+  font-size: 11px;
+  font-weight: 700;
+  opacity: 0.9;
+}
+
+.update-quick-action-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.update-quick-action-btn.is-available {
+  background: var(--bg-card);
+  color: var(--text-primary);
+}
+
+.update-quick-action-btn.is-ready {
+  background: var(--gradient-primary);
+  color: #fff;
+  border-color: transparent;
+}
+
+@media (max-width: 640px) {
+  .app-path-missing-modal {
+    max-width: 92vw;
+  }
+
+  .update-quick-action {
+    top: 56px;
+    left: 14px;
+  }
+}

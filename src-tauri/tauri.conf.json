@@ -1,28 +1,28 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Ai Switch",
-  "version": "1.7.2",
-  "identifier": "dev.aiswitch.desktop",
+  "productName": "AI Switch",
+  "version": "0.16.3",
+  "identifier": "com.jlcodes.ai-switch",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build:tauri",
+    "beforeBuildCommand": "npm run build",
     "frontendDist": "../dist"
   },
   "app": {
-    "withGlobalTauri": true,
+    "macOSPrivateApi": true,
     "windows": [
       {
-        "title": "Ai Switch",
-        "width": 1200,
+        "title": "AI Switch",
+        "width": 1250,
         "height": 800,
         "minWidth": 900,
         "minHeight": 600,
-        "resizable": true,
-        "fullscreen": false,
-        "decorations": true,
+        "center": true,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
         "transparent": false,
-        "center": true
+        "resizable": true
       }
     ],
     "security": {
@@ -33,6 +33,12 @@
     "active": true,
     "targets": "all",
     "createUpdaterArtifacts": true,
+    "category": "DeveloperTool",
+    "shortDescription": "AI IDE Account & OpenCode Configuration Manager",
+    "longDescription": "AI Switch - AI IDE 账号管理与 OpenCode 配置管理工具，支持多 Provider、Model、MCP、Skills 管理。",
+    "externalBin": [
+      "binaries/sub2api"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -40,37 +46,19 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "category": "DeveloperTool",
-    "shortDescription": "OpenCode 配置管理工具",
-    "longDescription": "Ai Switch工具，支持多 Provider 和 Model 管理、MCP 服务器配置、规则与技能管理。",
     "windows": {
       "certificateThumbprint": null,
       "digestAlgorithm": "sha256",
-      "timestampUrl": "",
-      "nsis": {
-        "installerHooks": "./windows/hooks.nsh"
-      }
+      "timestampUrl": ""
     },
     "macOS": {
-      "minimumSystemVersion": "10.15",
-      "dmg": {
-        "appPosition": {
-          "x": 180,
-          "y": 220
-        },
-        "applicationFolderPosition": {
-          "x": 480,
-          "y": 220
-        }
-      }
+      "minimumSystemVersion": "10.15"
     }
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDg5RTI1NjY4NjUzMzY2NUMKUldSY1pqTmxhRmJpaVZGTHZ6SXAxOExuNjFoOFZGandvTGNnWThJSWJkcVRTWERMTUg2c2NFYUoK",
-      "endpoints": [
-        "https://github.com/huhu588/Ai-Switch/releases/latest/download/latest.json"
-      ]
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEMxRkU1RTdBRDdCRUUzM0QKUldROTQ3N1hlbDcrd1ZVQ2E3b1ZoVUdXL3BWQmpjdzNnWllNUW1LNHVwcE9wdGI1Q1UxQmdnQ0oK",
+      "endpoints": []
     },
     "deep-link": {
       "desktop": {

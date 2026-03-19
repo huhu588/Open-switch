@@ -1,51 +1,71 @@
 use serde::Serialize;
 use thiserror::Error;
 
-/// 应用错误类型
 #[derive(Error, Debug)]
 pub enum AppError {
-    #[error("IO 错误: {0}")]
+    #[error("Database error: {0}")]
+    Database(#[from] rusqlite::Error),
+
+    #[error("Network error: {0}")]
+    Network(#[from] reqwest::Error),
+
+    #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
-    #[error("JSON 序列化错误: {0}")]
-    Json(#[from] serde_json::Error),
+    #[error("Tauri error: {0}")]
+    Tauri(#[from] tauri::Error),
 
-    #[error("HTTP 请求错误: {0}")]
-    Http(#[from] reqwest::Error),
+    #[error("OAuth error: {0}")]
+    OAuth(String),
 
-    #[error("配置错误: {0}")]
-    Config(#[from] crate::config::ConfigError),
+    #[error("Account error: {0}")]
+    Account(String),
 
-    #[error("数据库错误: {0}")]
-    Database(String),
+    #[error("File corrupted: {file_name}")]
+    FileCorrupted {
+        file_name: String,
+        file_path: String,
+        original_error: String,
+    },
 
-    #[error("代理错误: {0}")]
-    Proxy(String),
-
-    #[error("{0}")]
-    Custom(String),
+    #[error("Unknown error: {0}")]
+    Unknown(String),
 }
 
-impl From<String> for AppError {
-    fn from(s: String) -> Self {
-        AppError::Custom(s)
-    }
-}
-
-impl From<&str> for AppError {
-    fn from(s: &str) -> Self {
-        AppError::Custom(s.to_string())
-    }
-}
-
-// 实现 Serialize 以便 Tauri 可以将错误传递给前端
 impl Serialize for AppError {
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        serializer.serialize_str(&self.to_string())
+        use serde::ser::SerializeMap;
+
+        match self {
+            AppError::FileCorrupted {
+                file_name,
+                file_path,
+                original_error,
+            } => {
+                let mut map = serializer.serialize_map(Some(4))?;
+                map.serialize_entry("error_type", "file_corrupted")?;
+                map.serialize_entry("file_name", file_name)?;
+                map.serialize_entry("file_path", file_path)?;
+                map.serialize_entry("original_error", original_error)?;
+                map.end()
+            }
+            _ => serializer.serialize_str(self.to_string().as_str()),
+        }
     }
 }
 
-pub type Result<T> = std::result::Result<T, AppError>;
+/// 创建文件损坏错误的辅助函数
+pub fn file_corrupted_error(file_name: &str, file_path: &str, original_error: &str) -> String {
+    serde_json::json!({
+        "error_type": "file_corrupted",
+        "file_name": file_name,
+        "file_path": file_path,
+        "original_error": original_error
+    })
+    .to_string()
+}
+
+pub type AppResult<T> = Result<T, AppError>;
