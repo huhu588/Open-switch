@@ -297,7 +297,10 @@ impl McpConfigManager {
 
         // 更新 mcp 字段
         opencode_data["mcp"] = serde_json::Value::Object(mcp_map);
-
+        
+        // 移除 OpenCode 不识别的字段
+        opencode_data.remove("$schema");
+        
         // 写回 opencode.json
         let content = serde_json::to_string_pretty(&opencode_data)
             .map_err(|e| format!("序列化 opencode.json 失败: {}", e))?;

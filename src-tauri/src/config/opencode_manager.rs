@@ -170,9 +170,14 @@ impl OpenCodeConfigManager {
                     provider_obj.remove("enabled");
                     provider_obj.remove("auto_add_v1_suffix");
                     provider_obj.remove("metadata");
+                    provider_obj.remove("default");
                 }
             }
         }
+        
+        // 移除 OpenCode 不识别的顶层字段
+        value.remove("$schema");
+        value.remove("mcp");
         
         let content = serde_json::to_string_pretty(&value)
             .map_err(|e| format!("序列化 JSON 失败: {}", e))?;
