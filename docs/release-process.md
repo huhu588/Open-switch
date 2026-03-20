@@ -1,6 +1,6 @@
 # Release Process (Open Source, No Code Signing)
 
-> 适用于 ai switch 当前开源发布流程（未接入代码签名）。
+> 版本: v0.16.3 | 更新: 2026-03-19 | 适用于 ai switch 当前开源发布流程（未接入代码签名）。
 
 ## 1. 目标
 

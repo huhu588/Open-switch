@@ -31,6 +31,12 @@ pub fn get_gateway_status() -> Result<gateway::types::GatewayStatus, String> {
         total_output_tokens: 0,
     });
 
+    let synced_accounts = accounts
+        .iter()
+        .filter(|a| a.source.as_deref() == Some("synced"))
+        .count();
+    let platform_stats = crate::modules::gateway::account_pool_bridge::get_platform_account_stats();
+
     Ok(gateway::types::GatewayStatus {
         running: gateway::is_gateway_running(),
         port: config.port,
@@ -39,6 +45,12 @@ pub fn get_gateway_status() -> Result<gateway::types::GatewayStatus, String> {
         total_api_keys: api_keys.len(),
         total_requests: summary.total_requests,
         uptime_seconds: None,
+        synced_accounts,
+        platform_stats: if platform_stats.is_empty() {
+            None
+        } else {
+            Some(platform_stats)
+        },
     })
 }
 
@@ -75,6 +87,8 @@ pub fn add_gateway_account(
         tags.as_deref(),
         group_name.as_deref(),
         proxy_url.as_deref(),
+        None,
+        Some("manual"),
     )
 }
 
@@ -132,4 +146,37 @@ pub fn get_request_log_summary() -> Result<gateway::types::RequestLogSummary, St
 #[tauri::command]
 pub fn clear_request_logs() -> Result<(), String> {
     gateway::request_log::clear_logs()
+}
+
+#[tauri::command]
+pub fn sync_accounts_to_gateway() -> Result<crate::modules::gateway::account_pool_bridge::SyncResult, String> {
+    crate::modules::gateway::account_pool_bridge::sync_platform_accounts_to_gateway()
+}
+
+#[tauri::command]
+pub fn get_platform_account_stats() -> Result<std::collections::HashMap<String, usize>, String> {
+    Ok(crate::modules::gateway::account_pool_bridge::get_platform_account_stats())
+}
+
+#[tauri::command]
+pub async fn sync_accounts_to_sub2api() -> Result<crate::modules::subprocess::sub2api_sync::Sub2apiSyncResult, String> {
+    let port = crate::modules::subprocess::get_sub2api_port();
+    if port == 0 {
+        return Err("Sub2api 未在运行".to_string());
+    }
+    crate::modules::subprocess::sub2api_sync::sync_accounts_to_sub2api(port).await
+}
+
+#[tauri::command]
+pub fn get_unified_account_pool() -> Result<Vec<gateway::types::GatewayAccount>, String> {
+    let mut all_accounts = gateway::db::list_accounts().unwrap_or_default();
+    
+    let bridge_accounts = crate::modules::gateway::account_pool_bridge::collect_platform_accounts();
+    for pa in bridge_accounts {
+        if !all_accounts.iter().any(|a| a.id == pa.account.id) {
+            all_accounts.push(pa.account);
+        }
+    }
+    
+    Ok(all_accounts)
 }

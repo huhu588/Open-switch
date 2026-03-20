@@ -2,14 +2,26 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useTranslation } from 'react-i18next';
 import { RefreshCw, Download, Trash2, Loader2, Sparkles } from 'lucide-react';
+import { useToast } from '../hooks/useToast';
+import { ToastContainer } from '../components/Toast';
 
 interface OhMyVersionInfo { current_version: string | null; latest_version: string | null; has_update: boolean; }
 interface OhMyStatus { bun_installed: boolean; bun_version: string | null; npm_installed: boolean; ohmy_installed: boolean; config: { agents: Record<string, { model: string }> } | null; version_info: OhMyVersionInfo | null; }
 interface AvailableModel { provider_name: string; model_id: string; display_name: string; }
 interface AgentInfo { key: string; name: string; description: string; usage: string | null; }
 
+const AGENT_COLORS = [
+  { bg: 'linear-gradient(135deg, rgba(139, 92, 246, 0.15), rgba(168, 85, 247, 0.1))', color: '#8b5cf6' },
+  { bg: 'linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(99, 102, 241, 0.1))', color: '#3b82f6' },
+  { bg: 'linear-gradient(135deg, rgba(236, 72, 153, 0.15), rgba(244, 114, 182, 0.1))', color: '#ec4899' },
+  { bg: 'linear-gradient(135deg, rgba(249, 115, 22, 0.15), rgba(245, 158, 11, 0.1))', color: '#f97316' },
+  { bg: 'linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(5, 150, 105, 0.1))', color: '#10b981' },
+  { bg: 'linear-gradient(135deg, rgba(14, 165, 233, 0.15), rgba(6, 182, 212, 0.1))', color: '#0ea5e9' },
+];
+
 export function OhMyPage() {
   const { t } = useTranslation();
+  const toast = useToast();
   const [loading, setLoading] = useState(true);
   const [installing, setInstalling] = useState(false);
   const [uninstalling, setUninstalling] = useState(false);
@@ -19,8 +31,6 @@ export function OhMyPage() {
   const [availableModels, setAvailableModels] = useState<AvailableModel[]>([]);
   const [agentInfos, setAgentInfos] = useState<AgentInfo[]>([]);
   const [agentModels, setAgentModels] = useState<Record<string, string>>({});
-  const [message, setMessage] = useState('');
-  const [messageType, setMessageType] = useState<'success' | 'error'>('success');
   const [showUninstallConfirm, setShowUninstallConfirm] = useState(false);
 
   const freeModels = useMemo(() => availableModels.filter(m => m.provider_name === 'OpenCode Zen'), [availableModels]);
@@ -35,12 +45,6 @@ export function OhMyPage() {
     const glm = freeModels.find(m => m.model_id === 'glm-4.7');
     return glm?.display_name || availableModels[0]?.display_name || '';
   }, [availableModels, userModels, freeModels]);
-
-  const showMsg = useCallback((msg: string, type: 'success' | 'error') => {
-    setMessage(msg);
-    setMessageType(type);
-    setTimeout(() => setMessage(''), 3000);
-  }, []);
 
   const loadStatus = useCallback(async () => {
     setLoading(true);
@@ -58,37 +62,32 @@ export function OhMyPage() {
         models[agent.key] = s?.config?.agents?.[agent.key]?.model || defaultModel;
       }
       setAgentModels(models);
-      if (!installLog.includes('❌')) setInstallLog('');
+      if (!installLog.includes('\u274C')) setInstallLog('');
     } catch (e) {
-      console.error('Failed to load status:', e);
-      showMsg(t('ohmy.loadFailed', 'Failed to load'), 'error');
-    } finally {
-      setLoading(false);
-    }
-  }, [defaultModel, installLog, showMsg, t]);
+      toast.error(t('ohmy.loadFailed', '加载状态失败'));
+    } finally { setLoading(false); }
+  }, [defaultModel, installLog, t]);
 
   const installAndConfigure = async () => {
     setInstalling(true);
-    setInstallLog(t('ohmy.startingInstall', 'Starting installation...') + '\n');
+    setInstallLog(t('ohmy.startingInstall', '开始安装...') + '\n');
     try {
       await invoke<string>('install_and_configure', { agents: agentModels });
       setInstallLog('');
-      showMsg(t('ohmy.installSuccess', 'Installation successful'), 'success');
+      toast.success(t('ohmy.installSuccess', '安装成功'));
       await loadStatus();
     } catch (e) {
-      setInstallLog(prev => prev + '\n❌ ' + String(e));
-      showMsg(t('ohmy.installFailed', 'Installation failed'), 'error');
-    } finally {
-      setInstalling(false);
-    }
+      setInstallLog(prev => prev + '\n\u274C ' + String(e));
+      toast.error(t('ohmy.installFailed', '安装失败'));
+    } finally { setInstalling(false); }
   };
 
   const saveConfig = async () => {
     try {
       await invoke('save_ohmy_config', { agents: agentModels });
-      showMsg(t('ohmy.saved', 'Configuration saved'), 'success');
+      toast.success(t('ohmy.saved', '配置已保存'));
     } catch (e) {
-      showMsg(t('ohmy.saveFailed', 'Save failed'), 'error');
+      toast.error(t('ohmy.saveFailed', '保存失败'));
     }
   };
 
@@ -97,30 +96,26 @@ export function OhMyPage() {
     setShowUninstallConfirm(false);
     try {
       await invoke<string>('uninstall_ohmy');
-      showMsg(t('ohmy.uninstallSuccess', 'Uninstalled successfully'), 'success');
+      toast.success(t('ohmy.uninstallSuccess', '卸载成功'));
       await loadStatus();
     } catch (e) {
-      setInstallLog('❌ ' + String(e));
-      showMsg(t('ohmy.uninstallFailed', 'Uninstall failed'), 'error');
-    } finally {
-      setUninstalling(false);
-    }
+      setInstallLog('\u274C ' + String(e));
+      toast.error(t('ohmy.uninstallFailed', '卸载失败'));
+    } finally { setUninstalling(false); }
   };
 
   const updateOhmy = async () => {
     setUpdating(true);
-    setInstallLog(t('ohmy.startingUpdate', 'Updating...') + '\n');
+    setInstallLog(t('ohmy.startingUpdate', '正在更新...') + '\n');
     try {
       await invoke<string>('update_ohmy');
       setInstallLog('');
-      showMsg(t('ohmy.updateSuccess', 'Updated successfully'), 'success');
+      toast.success(t('ohmy.updateSuccess', '更新成功'));
       await loadStatus();
     } catch (e) {
-      setInstallLog(prev => prev + '\n❌ ' + String(e));
-      showMsg(t('ohmy.updateFailed', 'Update failed'), 'error');
-    } finally {
-      setUpdating(false);
-    }
+      setInstallLog(prev => prev + '\n\u274C ' + String(e));
+      toast.error(t('ohmy.updateFailed', '更新失败'));
+    } finally { setUpdating(false); }
   };
 
   const setAllAgentsModel = (model: string) => {
@@ -133,44 +128,56 @@ export function OhMyPage() {
 
   const renderModelSelect = (value: string, onChange: (v: string) => void) => (
     <select className="select select-sm select-bordered w-full" value={value} onChange={e => onChange(e.target.value)}>
-      {userModels.length > 0 && <optgroup label={t('ohmy.yourModels', 'Your Models')}>{userModels.map(m => <option key={m.display_name} value={m.display_name}>{m.display_name}</option>)}</optgroup>}
-      <optgroup label={t('ohmy.freeModels', 'Free Models')}>{freeModels.map(m => <option key={m.display_name} value={m.display_name}>{m.display_name}</option>)}</optgroup>
+      {userModels.length > 0 && (
+        <optgroup label={t('ohmy.yourModels', '你的模型')}>
+          {userModels.map(m => <option key={m.display_name} value={m.display_name}>{m.display_name}</option>)}
+        </optgroup>
+      )}
+      <optgroup label={t('ohmy.freeModels', '免费模型')}>
+        {freeModels.map(m => <option key={m.display_name} value={m.display_name}>{m.display_name}</option>)}
+      </optgroup>
     </select>
   );
 
+  const statusItems = [
+    { label: 'Bun', ok: status?.bun_installed, version: status?.bun_version, color: '#f7df1e' },
+    { label: 'npm', ok: status?.npm_installed, version: null, color: '#cb3837' },
+    { label: 'oh-my-opencode', ok: status?.ohmy_installed, version: status?.version_info?.current_version, color: '#a855f7' },
+  ];
+
   return (
     <div className="h-full flex flex-col gap-4 overflow-auto p-4">
+      <ToastContainer toasts={toast.toasts} />
+
       {showUninstallConfirm && (
-        <div className="modal modal-open">
+        <div className="oc-modal-overlay">
           <div className="modal-box">
-            <h3 className="font-bold text-lg">{t('ohmy.uninstallTitle', 'Confirm Uninstall')}</h3>
-            <p className="py-4">{t('ohmy.confirmUninstall', 'Are you sure you want to uninstall oh-my-opencode?')}</p>
+            <h3 className="font-bold text-lg">{t('ohmy.uninstallTitle', '确认卸载')}</h3>
+            <p className="py-4">{t('ohmy.confirmUninstall', '确定要卸载 oh-my-opencode 吗？')}</p>
             <div className="modal-action">
-              <button className="btn" onClick={() => setShowUninstallConfirm(false)}>{t('common.cancel', 'Cancel')}</button>
-              <button className="btn btn-error" onClick={doUninstall}>{t('ohmy.uninstall', 'Uninstall')}</button>
+              <button className="btn" onClick={() => setShowUninstallConfirm(false)}>{t('common.cancel', '取消')}</button>
+              <button className="btn btn-error" onClick={doUninstall}>{t('ohmy.uninstall', '卸载')}</button>
             </div>
           </div>
         </div>
       )}
 
-      <div className="flex items-center justify-between flex-shrink-0">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 text-white shadow-lg">
-            <Sparkles size={24} />
-          </div>
+      {/* Page Header */}
+      <div className="oc-page-header">
+        <div className="oc-page-header-left">
+          <div className="oc-page-icon oc-page-icon--ohmy"><Sparkles size={22} /></div>
           <div>
-            <h1 className="text-xl font-bold">{t('ohmy.title', 'oh-my-opencode')}</h1>
-            <p className="text-xs opacity-60">{t('ohmy.subtitle', 'Agent enhancement toolkit')}</p>
+            <h2 className="oc-page-title">{t('ohmy.title', 'oh-my-opencode')}</h2>
+            <p className="oc-page-subtitle">{t('ohmy.subtitle', 'Agent 增强工具集')}</p>
           </div>
         </div>
-        <div className="flex items-center gap-3">
-          {message && <div className={`text-sm px-4 py-2 rounded-lg animate-pulse ${messageType === 'success' ? 'bg-success/20 text-success' : 'bg-error/20 text-error'}`}>{message}</div>}
-          {!loading && <button className="btn btn-sm btn-ghost" onClick={loadStatus}><RefreshCw size={14} /> {t('ohmy.refresh', 'Refresh')}</button>}
-          {!loading && status?.ohmy_installed && <button className="btn btn-sm btn-primary" onClick={saveConfig}>{t('ohmy.saveConfig', 'Save Config')}</button>}
+        <div className="oc-page-header-actions">
+          {!loading && <button className="btn btn-sm btn-ghost" onClick={loadStatus}><RefreshCw size={14} /></button>}
+          {!loading && status?.ohmy_installed && <button className="btn btn-sm btn-primary" onClick={saveConfig}>{t('ohmy.saveConfig', '保存配置')}</button>}
           {!loading && !status?.ohmy_installed && (
-            <button className="btn btn-sm btn-primary bg-gradient-to-r from-purple-500 to-pink-500 border-none" disabled={installing || availableModels.length === 0} onClick={installAndConfigure}>
+            <button className="btn btn-sm btn-primary" style={{ background: 'linear-gradient(135deg, #a855f7, #ec4899)', border: 'none' }} disabled={installing || availableModels.length === 0} onClick={installAndConfigure}>
               {installing ? <Loader2 className="animate-spin" size={14} /> : <Download size={14} />}
-              {installing ? t('ohmy.installing', 'Installing...') : t('ohmy.installAndConfigure', 'Install & Configure')}
+              {installing ? t('ohmy.installing', '安装中...') : t('ohmy.installAndConfigure', '安装并配置')}
             </button>
           )}
         </div>
@@ -180,82 +187,97 @@ export function OhMyPage() {
         <div className="flex-1 flex items-center justify-center"><Loader2 className="animate-spin" size={32} /></div>
       ) : (
         <div className="flex-1 space-y-6">
-          <div className="card bg-base-200 p-4">
-            <div className="flex items-center gap-4 flex-wrap">
-              {[
-                { label: 'Bun', ok: status?.bun_installed, version: status?.bun_version },
-                { label: 'npm', ok: status?.npm_installed },
-                { label: 'oh-my-opencode', ok: status?.ohmy_installed },
-              ].map(item => (
-                <div key={item.label} className="flex items-center gap-2">
-                  <div className={`w-3 h-3 rounded-full ${item.ok ? 'bg-success' : 'bg-warning'}`} />
-                  <span className="text-sm">{item.label}: {item.ok ? (item.version || t('ohmy.installed', 'Installed')) : t('ohmy.notInstalled', 'Not installed')}</span>
-                </div>
-              ))}
-              {status?.version_info?.current_version && (
-                <div className="flex items-center gap-2">
-                  <span className="text-sm opacity-60">v{status.version_info.current_version}</span>
-                  {status.version_info.has_update && status.version_info.latest_version && (
-                    <>
-                      <span className="text-xs text-warning">→ v{status.version_info.latest_version}</span>
-                      <button className="btn btn-xs btn-primary" disabled={updating} onClick={updateOhmy}>
-                        {updating ? <Loader2 className="animate-spin" size={10} /> : <Download size={10} />}
-                        {updating ? t('ohmy.updating', 'Updating') : t('ohmy.update', 'Update')}
-                      </button>
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {installLog && (
-            <div className={`card p-4 ${installLog.includes('❌') ? 'bg-error/10 border border-error/30' : 'bg-base-200'}`}>
-              <h4 className="text-sm font-medium mb-2">{t('ohmy.installLog', 'Install Log')}</h4>
-              <pre className={`text-xs font-mono whitespace-pre-wrap max-h-60 overflow-auto ${installLog.includes('❌') ? 'text-error' : 'opacity-60'}`}>{installLog}</pre>
-            </div>
-          )}
-
-          {availableModels.length > 0 && (
-            <div className="card bg-base-200 p-4">
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <h3 className="font-medium">{t('ohmy.quickSet', 'Quick Set All')}</h3>
-                  <p className="text-xs opacity-60">{t('ohmy.quickSetDesc', 'Set the same model for all agents')}</p>
-                </div>
-                {renderModelSelect('', v => setAllAgentsModel(v))}
-              </div>
-            </div>
-          )}
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {agentInfos.map(agent => (
-              <div key={agent.key} className="card bg-base-200 p-5 hover:shadow-md transition-all">
-                <div className="flex items-start gap-3 mb-4">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary"><Sparkles size={20} /></div>
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-semibold">{agent.name}</h3>
-                    <p className="text-sm opacity-60">{agent.description}</p>
+          {/* Status Cards Grid */}
+          <div className="grid grid-cols-3 gap-3 oc-stagger">
+            {statusItems.map(item => (
+              <div key={item.label} className="oc-stat-card" style={{ background: 'var(--bg-card)' }}>
+                <div className="flex items-center gap-3">
+                  <div className={`oc-status-dot ${item.ok ? 'is-ok' : 'is-warn'}`} />
+                  <div>
+                    <div className="font-semibold text-sm">{item.label}</div>
+                    <div className="text-xs opacity-50 mt-0.5">
+                      {item.ok ? (item.version ? `v${item.version}` : t('ohmy.installed', '已安装')) : t('ohmy.notInstalled', '未安装')}
+                    </div>
                   </div>
-                </div>
-                {agent.usage && (
-                  <div className="mb-4 p-3 rounded-lg bg-base-300 text-xs opacity-80">
-                    <span className="text-primary font-medium">{t('ohmy.usage', 'Usage')}:</span> {agent.usage}
-                  </div>
-                )}
-                <div>
-                  <label className="text-xs opacity-60 mb-1.5 block">{t('ohmy.selectModel', 'Select Model')}</label>
-                  {renderModelSelect(agentModels[agent.key] || '', v => setAgentModels(prev => ({ ...prev, [agent.key]: v })))}
                 </div>
               </div>
             ))}
           </div>
 
+          {/* Version Update */}
+          {status?.version_info?.has_update && status.version_info.latest_version && (
+            <div className="oc-mcp-card" style={{ borderColor: 'rgba(245, 158, 11, 0.3)', background: 'rgba(245, 158, 11, 0.05)' }}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm">v{status.version_info.current_version}</span>
+                  <span className="text-warning">&rarr;</span>
+                  <span className="text-sm font-medium text-warning">v{status.version_info.latest_version}</span>
+                </div>
+                <button className="btn btn-xs btn-warning" disabled={updating} onClick={updateOhmy}>
+                  {updating ? <Loader2 className="animate-spin" size={10} /> : <Download size={10} />}
+                  {updating ? t('ohmy.updating', '更新中') : t('ohmy.update', '更新')}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {installLog && (
+            <div className={`oc-mcp-card ${installLog.includes('\u274C') ? '' : ''}`} style={installLog.includes('\u274C') ? { borderColor: 'rgba(239, 68, 68, 0.3)', background: 'rgba(239, 68, 68, 0.05)' } : {}}>
+              <h4 className="text-sm font-medium mb-2">{t('ohmy.installLog', '安装日志')}</h4>
+              <pre className={`text-xs font-mono whitespace-pre-wrap max-h-48 overflow-auto ${installLog.includes('\u274C') ? 'text-error' : 'opacity-60'}`}>{installLog}</pre>
+            </div>
+          )}
+
+          {/* Quick Set All */}
+          {availableModels.length > 0 && (
+            <div className="oc-mcp-card">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <h3 className="font-medium text-sm">{t('ohmy.quickSet', '快速设置全部')}</h3>
+                  <p className="text-xs opacity-50">{t('ohmy.quickSetDesc', '为所有 Agent 设置相同的模型')}</p>
+                </div>
+                <div style={{ minWidth: '200px' }}>
+                  {renderModelSelect('', v => setAllAgentsModel(v))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Agent Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 oc-stagger">
+            {agentInfos.map((agent, i) => {
+              const colorScheme = AGENT_COLORS[i % AGENT_COLORS.length];
+              return (
+                <div key={agent.key} className="oc-mcp-card" style={{ transition: 'transform 0.2s, box-shadow 0.2s' }}>
+                  <div className="flex items-start gap-3 mb-4">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl shrink-0" style={{ background: colorScheme.bg, color: colorScheme.color }}>
+                      <Sparkles size={20} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-semibold text-sm">{agent.name}</h3>
+                      <p className="text-xs opacity-50 mt-0.5">{agent.description}</p>
+                    </div>
+                  </div>
+                  {agent.usage && (
+                    <div className="mb-4 p-3 rounded-lg bg-base-300 text-xs opacity-80" style={{ border: '1px solid var(--border-light)' }}>
+                      <span style={{ color: colorScheme.color }} className="font-medium">{t('ohmy.usage', '用法')}:</span> {agent.usage}
+                    </div>
+                  )}
+                  <div>
+                    <label className="text-xs opacity-50 mb-1.5 block">{t('ohmy.selectModel', '选择模型')}</label>
+                    {renderModelSelect(agentModels[agent.key] || '', v => setAgentModels(prev => ({ ...prev, [agent.key]: v })))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Uninstall */}
           {status?.ohmy_installed && (
             <div className="pt-4 border-t border-base-content/10">
               <button className="btn btn-sm btn-error btn-outline" disabled={uninstalling} onClick={() => setShowUninstallConfirm(true)}>
                 {uninstalling ? <Loader2 className="animate-spin" size={14} /> : <Trash2 size={14} />}
-                {uninstalling ? t('ohmy.uninstalling', 'Uninstalling...') : t('ohmy.uninstall', 'Uninstall')}
+                {uninstalling ? t('ohmy.uninstalling', '卸载中...') : t('ohmy.uninstall', '卸载')}
               </button>
             </div>
           )}

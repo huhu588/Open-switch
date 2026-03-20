@@ -16,6 +16,8 @@ pub struct GatewayAccount {
     pub last_used_at: Option<i64>,
     pub cooldown_until: Option<i64>,
     pub error_count: i32,
+    pub platform: Option<String>,
+    pub source: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -79,6 +81,8 @@ pub struct GatewayStatus {
     pub total_api_keys: usize,
     pub total_requests: i64,
     pub uptime_seconds: Option<u64>,
+    pub synced_accounts: usize,
+    pub platform_stats: Option<std::collections::HashMap<String, usize>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -92,6 +96,8 @@ pub struct GatewayConfig {
     pub cors_enabled: bool,
     pub max_concurrent_per_account: u32,
     pub cooldown_seconds: u32,
+    pub platform_upstreams: Option<std::collections::HashMap<String, String>>,
+    pub enable_account_bridge: bool,
 }
 
 impl Default for GatewayConfig {
@@ -106,6 +112,8 @@ impl Default for GatewayConfig {
             cors_enabled: true,
             max_concurrent_per_account: 5,
             cooldown_seconds: 300,
+            platform_upstreams: None,
+            enable_account_bridge: false,
         }
     }
 }
@@ -117,6 +125,7 @@ pub enum RouteStrategy {
     LeastUsed,
     Random,
     Priority,
+    QuotaAware,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

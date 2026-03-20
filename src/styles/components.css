@@ -173,7 +173,7 @@
 /* Main Content */
 .main-wrapper {
   flex: 1;
-  margin-inline-start: 120px; /* 增加起始侧留白，主要避开 Sidebar */
+  margin-inline-start: 120px;
   padding: 40px 32px 32px 0;
   padding-inline-start: 0;
   padding-inline-end: 32px;
@@ -182,6 +182,9 @@
   display: flex;
   flex-direction: column;
   gap: 20px;
+  position: relative;
+  z-index: 1;
+  -webkit-app-region: no-drag;
 }
 
 .main-content {
@@ -189,6 +192,13 @@
   display: flex;
   flex-direction: column;
   gap: 20px;
+}
+
+.page-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .page-heading {
@@ -539,6 +549,7 @@
   max-width: min(320px, 72vw);
   cursor: pointer;
   box-shadow: var(--shadow-sm);
+  -webkit-app-region: no-drag;
   transition:
     border-color 0.16s ease,
     background 0.16s ease,
@@ -594,21 +605,77 @@
   color: var(--primary);
 }
 
+.platform-group-switcher-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 13099;
+  -webkit-app-region: no-drag;
+}
+
 .platform-group-switcher-dropdown {
   position: fixed;
   top: 0;
   left: 0;
-  z-index: 10000;
+  z-index: 13100;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
   width: 240px;
   max-width: min(280px, calc(100vw - 16px));
+  overflow-y: auto;
   border: 1px solid var(--border);
   border-radius: 16px;
   background: var(--bg-surface);
   box-shadow: var(--shadow-lg);
   padding: 8px;
+  -webkit-app-region: no-drag;
+}
+
+.platform-group-switcher-section-label {
+  padding: 4px 12px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-tertiary, var(--text-secondary));
+  opacity: 0.7;
+}
+
+.platform-group-switcher-group {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.platform-group-switcher-group-header {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 4px 12px;
+  border-radius: 8px;
+  pointer-events: none;
+}
+
+.platform-group-switcher-group-header.is-group-active .platform-group-switcher-option-icon {
+  color: var(--primary);
+}
+
+.platform-group-switcher-group-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.platform-group-switcher-group-header.is-group-active .platform-group-switcher-group-name {
+  color: var(--primary);
+}
+
+.platform-group-switcher-option-child {
+  padding-left: 20px !important;
 }
 
 .platform-group-switcher-option {

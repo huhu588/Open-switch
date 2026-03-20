@@ -1,4 +1,4 @@
-import { Settings, Rocket, GaugeCircle, LayoutGrid, SlidersHorizontal, Router, Globe, Key, FileText, Server, Layers, Plug, BarChart3, FolderArchive, Terminal, Sparkles, Activity } from 'lucide-react';
+import { Settings, Rocket, GaugeCircle, LayoutGrid, SlidersHorizontal, Plug, BarChart3, FolderArchive, Terminal, Sparkles, Activity, Wand2, MessageSquare } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { Page } from '../../types/navigation';
@@ -55,6 +55,11 @@ const PAGE_PLATFORM_MAP: Partial<Record<Page, PlatformId>> = {
   qoder: 'qoder',
   trae: 'trae',
   workbuddy: 'workbuddy',
+  'claude-code': 'claude-code',
+  opencode: 'opencode',
+  openclaw: 'openclaw',
+  warp: 'warp',
+  augment: 'augment',
 };
 
 function renderEntryIcon(entry: SideNavEntry, size: number) {
@@ -91,6 +96,7 @@ export function SideNav({
   const { t } = useTranslation();
   const [flyingRockets, setFlyingRockets] = useState<FlyingRocket[]>([]);
   const [showMore, setShowMore] = useState(false);
+  const [popoverPos, setPopoverPos] = useState<{ top: number; left: number } | null>(null);
   const rocketIdRef = useRef(0);
   const logoRef = useRef<HTMLDivElement>(null);
   const morePopoverRef = useRef<HTMLDivElement>(null);
@@ -192,6 +198,18 @@ export function SideNav({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showMore]);
 
+  useEffect(() => {
+    if (showMore && moreButtonRef.current) {
+      const rect = moreButtonRef.current.getBoundingClientRect();
+      const popoverHeight = 400;
+      let top = rect.top + rect.height / 2 - popoverHeight / 2;
+      top = Math.max(8, Math.min(top, window.innerHeight - popoverHeight - 8));
+      setPopoverPos({ top, left: rect.right + 12 });
+    } else {
+      setPopoverPos(null);
+    }
+  }, [showMore]);
+
   const clampedUpdateProgress = Math.max(0, Math.min(100, Math.round(updateProgress)));
   const updateVisualState = updateActionState === 'ready'
     ? 'restart'
@@ -278,233 +296,199 @@ export function SideNav({
         </div>
       </div>
 
-      <div className="nav-items">
-        <button
-          className={`nav-item ${page === 'dashboard' ? 'active' : ''}`}
-          onClick={() => setPage('dashboard')}
-          title={t('nav.dashboard')}
-        >
-          <GaugeCircle size={20} />
-          <span className="tooltip">{t('nav.dashboard')}</span>
-        </button>
+      <div className="nav-scroll-area">
+        <div className="nav-items">
+          <button
+            className={`nav-item ${page === 'dashboard' ? 'active' : ''}`}
+            onClick={() => setPage('dashboard')}
+            title={t('nav.dashboard')}
+          >
+            <GaugeCircle size={20} />
+            <span className="tooltip">{t('nav.dashboard')}</span>
+          </button>
 
-        {sidebarVisibleEntries.map((entry) => {
-          const active = currentEntryId === entry.id;
-          return (
-            <button
-              key={entry.id}
-              className={`nav-item ${active ? 'active' : ''}`}
-              onClick={() => setPage(PLATFORM_PAGE_MAP[entry.targetPlatformId])}
-              title={entry.label}
+          {sidebarVisibleEntries.map((entry) => {
+            const active = currentEntryId === entry.id;
+            return (
+              <button
+                key={entry.id}
+                className={`nav-item ${active ? 'active' : ''}`}
+                onClick={() => setPage(PLATFORM_PAGE_MAP[entry.targetPlatformId])}
+                title={entry.label}
+              >
+                {renderEntryIcon(entry, 20)}
+                <span className="tooltip">{entry.label}</span>
+              </button>
+            );
+          })}
+
+          <button
+            ref={moreButtonRef}
+            className={`nav-item ${showMore || isMoreActive ? 'active' : ''}`}
+            onClick={() => setShowMore((prev) => !prev)}
+            title={t('nav.morePlatforms', '更多平台')}
+          >
+            <LayoutGrid size={20} />
+            <span className="tooltip">{t('nav.morePlatforms', '更多平台')}</span>
+          </button>
+
+          {showMore && popoverPos && (
+            <div
+              className="side-nav-more-popover"
+              ref={morePopoverRef}
+              style={{ top: popoverPos.top, left: popoverPos.left }}
             >
-              {renderEntryIcon(entry, 20)}
-              <span className="tooltip">{entry.label}</span>
-            </button>
-          );
-        })}
+              <div className="side-nav-more-title">{t('nav.morePlatforms', '更多平台')}</div>
+              <div className="side-nav-more-list">
+                {orderedEntries.map((entry) => {
+                  const active = currentEntryId === entry.id;
+                  return (
+                    <div className="side-nav-more-group" key={entry.id}>
+                      <button
+                        className={`side-nav-more-item ${active ? 'active' : ''}`}
+                        onClick={() => {
+                          setPage(PLATFORM_PAGE_MAP[entry.targetPlatformId]);
+                          setShowMore(false);
+                        }}
+                      >
+                        <span className="side-nav-more-item-icon">{renderEntryIcon(entry, 16)}</span>
+                        <span className="side-nav-more-item-label">{entry.label}</span>
+                        {entry.hidden && (
+                          <span className="side-nav-more-item-badge">
+                            {t('platformLayout.hiddenBadge', '已隐藏')}
+                          </span>
+                        )}
+                      </button>
 
-        <button
-          ref={moreButtonRef}
-          className={`nav-item ${showMore || isMoreActive ? 'active' : ''}`}
-          onClick={() => setShowMore((prev) => !prev)}
-          title={t('nav.morePlatforms', '更多平台')}
-        >
-          <LayoutGrid size={20} />
-          <span className="tooltip">{t('nav.morePlatforms', '更多平台')}</span>
-        </button>
-
-        {showMore && (
-          <div className="side-nav-more-popover" ref={morePopoverRef}>
-            <div className="side-nav-more-title">{t('nav.morePlatforms', '更多平台')}</div>
-            <div className="side-nav-more-list">
-              {orderedEntries.map((entry) => {
-                const active = currentEntryId === entry.id;
-                return (
-                  <div className="side-nav-more-group" key={entry.id}>
-                    <button
-                      className={`side-nav-more-item ${active ? 'active' : ''}`}
-                      onClick={() => {
-                        setPage(PLATFORM_PAGE_MAP[entry.targetPlatformId]);
-                        setShowMore(false);
-                      }}
-                    >
-                      <span className="side-nav-more-item-icon">{renderEntryIcon(entry, 16)}</span>
-                      <span className="side-nav-more-item-label">{entry.label}</span>
-                      {entry.hidden && (
-                        <span className="side-nav-more-item-badge">
-                          {t('platformLayout.hiddenBadge', '已隐藏')}
-                        </span>
+                      {entry.group && entry.platformIds.length > 1 && (
+                        <div className="side-nav-more-sub-list">
+                          {entry.platformIds.map((platformId) => {
+                            const icon = resolveGroupChildIcon(entry.group!, platformId);
+                            const label = resolveGroupChildName(
+                              entry.group!,
+                              platformId,
+                              getPlatformLabel(platformId, t),
+                            );
+                            return (
+                              <button
+                                key={`${entry.id}:${platformId}`}
+                                className={`side-nav-more-sub-item ${currentPlatformId === platformId ? 'active' : ''}`}
+                                onClick={() => {
+                                  setPage(PLATFORM_PAGE_MAP[platformId]);
+                                  setShowMore(false);
+                                }}
+                              >
+                                <span className="side-nav-more-sub-item-icon">
+                                  {icon.iconKind === 'custom' && icon.iconCustomDataUrl ? (
+                                    <img
+                                      src={icon.iconCustomDataUrl}
+                                      alt={label}
+                                      className="side-nav-group-icon"
+                                      style={{ width: 14, height: 14 }}
+                                    />
+                                  ) : (
+                                    renderPlatformIcon(icon.iconPlatformId, 14)
+                                  )}
+                                </span>
+                                <span className="side-nav-more-sub-item-label">{label}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
                       )}
-                    </button>
-
-                    {entry.group && entry.platformIds.length > 1 && (
-                      <div className="side-nav-more-sub-list">
-                        {entry.platformIds.map((platformId) => {
-                          const icon = resolveGroupChildIcon(entry.group!, platformId);
-                          const label = resolveGroupChildName(
-                            entry.group!,
-                            platformId,
-                            getPlatformLabel(platformId, t),
-                          );
-                          return (
-                            <button
-                              key={`${entry.id}:${platformId}`}
-                              className={`side-nav-more-sub-item ${currentPlatformId === platformId ? 'active' : ''}`}
-                              onClick={() => {
-                                setPage(PLATFORM_PAGE_MAP[platformId]);
-                                setShowMore(false);
-                              }}
-                            >
-                              <span className="side-nav-more-sub-item-icon">
-                                {icon.iconKind === 'custom' && icon.iconCustomDataUrl ? (
-                                  <img
-                                    src={icon.iconCustomDataUrl}
-                                    alt={label}
-                                    className="side-nav-group-icon"
-                                    style={{ width: 14, height: 14 }}
-                                  />
-                                ) : (
-                                  renderPlatformIcon(icon.iconPlatformId, 14)
-                                )}
-                              </span>
-                              <span className="side-nav-more-sub-item-label">{label}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+                    </div>
+                  );
+                })}
+              </div>
+              <button
+                className="side-nav-more-manage"
+                onClick={() => {
+                  setShowMore(false);
+                  onOpenPlatformLayout();
+                }}
+              >
+                <SlidersHorizontal size={14} />
+                <span>{t('platformLayout.openFromMore', '管理平台布局')}</span>
+              </button>
             </div>
-            <button
-              className="side-nav-more-manage"
-              onClick={() => {
-                setShowMore(false);
-                onOpenPlatformLayout();
-              }}
-            >
-              <SlidersHorizontal size={14} />
-              <span>{t('platformLayout.openFromMore', '管理平台布局')}</span>
-            </button>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
 
-      {/* OpenCode 配置分组 */}
-      <div className="nav-section nav-section-opencode">
-        <div className="nav-section-label">{t('nav.opencodeConfig', 'OpenCode 配置')}</div>
-        <button
-          className={`nav-item ${page === 'providers' ? 'active' : ''}`}
-          onClick={() => setPage('providers')}
-          title={t('nav.providers', 'Provider 管理')}
-        >
-          <Layers size={20} />
-          <span className="tooltip">{t('nav.providers', 'Provider 管理')}</span>
-        </button>
-        <button
-          className={`nav-item ${page === 'mcp' ? 'active' : ''}`}
-          onClick={() => setPage('mcp')}
-          title={t('nav.mcp', 'MCP 服务器')}
-        >
-          <Plug size={20} />
-          <span className="tooltip">{t('nav.mcp', 'MCP 服务器')}</span>
-        </button>
-        <button
-          className={`nav-item ${page === 'skills' ? 'active' : ''}`}
-          onClick={() => setPage('skills')}
-          title={t('nav.skills', 'Skills 技能')}
-        >
-          <Sparkles size={20} />
-          <span className="tooltip">{t('nav.skills', 'Skills 技能')}</span>
-        </button>
-      </div>
+        {/* OpenCode 配置分组 */}
+        <div className="nav-section nav-section-opencode">
+          <div className="nav-section-label">{t('nav.opencodeConfig', 'OPENCODE\n配置')}</div>
+          <button
+            className={`nav-item ${page === 'mcp' ? 'active' : ''}`}
+            onClick={() => setPage('mcp')}
+            title={t('nav.mcp', 'MCP 服务器')}
+          >
+            <Plug size={20} />
+            <span className="tooltip">{t('nav.mcp', 'MCP 服务器')}</span>
+          </button>
+          <button
+            className={`nav-item ${page === 'skills' ? 'active' : ''}`}
+            onClick={() => setPage('skills')}
+            title={t('nav.skills', 'Skills 技能')}
+          >
+            <Sparkles size={20} />
+            <span className="tooltip">{t('nav.skills', 'Skills 技能')}</span>
+          </button>
+          <button
+            className={`nav-item ${page === 'ohmy' ? 'active' : ''}`}
+            onClick={() => setPage('ohmy')}
+            title={t('nav.ohmy', 'OhMy 配置')}
+          >
+            <Wand2 size={20} />
+            <span className="tooltip">{t('nav.ohmy', 'OhMy 配置')}</span>
+          </button>
+        </div>
 
-      {/* 工具分组 */}
-      <div className="nav-section nav-section-tools">
-        <div className="nav-section-label">{t('nav.tools', '工具')}</div>
-        <button
-          className={`nav-item ${page === 'usage' ? 'active' : ''}`}
-          onClick={() => setPage('usage')}
-          title={t('nav.usage', '用量统计')}
-        >
-          <BarChart3 size={20} />
-          <span className="tooltip">{t('nav.usage', '用量统计')}</span>
-        </button>
-        <button
-          className={`nav-item ${page === 'backup' ? 'active' : ''}`}
-          onClick={() => setPage('backup')}
-          title={t('nav.backup', '备份恢复')}
-        >
-          <FolderArchive size={20} />
-          <span className="tooltip">{t('nav.backup', '备份恢复')}</span>
-        </button>
-        <button
-          className={`nav-item ${page === 'devenv' ? 'active' : ''}`}
-          onClick={() => setPage('devenv')}
-          title={t('nav.devenv', '开发环境')}
-        >
-          <Terminal size={20} />
-          <span className="tooltip">{t('nav.devenv', '开发环境')}</span>
-        </button>
-        <button
-          className={`nav-item ${page === 'tool-status' ? 'active' : ''}`}
-          onClick={() => setPage('tool-status')}
-          title={t('nav.toolStatus', '工具状态')}
-        >
-          <Activity size={20} />
-          <span className="tooltip">{t('nav.toolStatus', '工具状态')}</span>
-        </button>
-      </div>
+        {/* 工具分组 */}
+        <div className="nav-section nav-section-tools">
+          <div className="nav-section-label">{t('nav.tools', '工具')}</div>
+          <button
+            className={`nav-item ${page === 'sessions' ? 'active' : ''}`}
+            onClick={() => setPage('sessions')}
+            title={t('nav.sessions', '会话管理')}
+          >
+            <MessageSquare size={20} />
+            <span className="tooltip">{t('nav.sessions', '会话管理')}</span>
+          </button>
+          <button
+            className={`nav-item ${page === 'usage' ? 'active' : ''}`}
+            onClick={() => setPage('usage')}
+            title={t('nav.usage', '用量统计')}
+          >
+            <BarChart3 size={20} />
+            <span className="tooltip">{t('nav.usage', '用量统计')}</span>
+          </button>
+          <button
+            className={`nav-item ${page === 'backup' ? 'active' : ''}`}
+            onClick={() => setPage('backup')}
+            title={t('nav.backup', '备份恢复')}
+          >
+            <FolderArchive size={20} />
+            <span className="tooltip">{t('nav.backup', '备份恢复')}</span>
+          </button>
+          <button
+            className={`nav-item ${page === 'devenv' ? 'active' : ''}`}
+            onClick={() => setPage('devenv')}
+            title={t('nav.devenv', '开发环境')}
+          >
+            <Terminal size={20} />
+            <span className="tooltip">{t('nav.devenv', '开发环境')}</span>
+          </button>
+          <button
+            className={`nav-item ${page === 'tool-status' ? 'active' : ''}`}
+            onClick={() => setPage('tool-status')}
+            title={t('nav.toolStatus', '工具状态')}
+          >
+            <Activity size={20} />
+            <span className="tooltip">{t('nav.toolStatus', '工具状态')}</span>
+          </button>
+        </div>
 
-      {/* API 网关分组 */}
-      <div className="nav-section nav-section-gateway">
-        <div className="nav-section-label">{t('nav.gateway', 'API 网关')}</div>
-        <button
-          className={`nav-item ${page === 'gateway-dashboard' ? 'active' : ''}`}
-          onClick={() => setPage('gateway-dashboard')}
-          title={t('nav.gatewayDashboard', '网关仪表盘')}
-        >
-          <Router size={20} />
-          <span className="tooltip">{t('nav.gatewayDashboard', '网关仪表盘')}</span>
-        </button>
-        <button
-          className={`nav-item ${page === 'gateway-accounts' ? 'active' : ''}`}
-          onClick={() => setPage('gateway-accounts')}
-          title={t('nav.gatewayAccounts', '账号池')}
-        >
-          <Globe size={20} />
-          <span className="tooltip">{t('nav.gatewayAccounts', '账号池')}</span>
-        </button>
-        <button
-          className={`nav-item ${page === 'gateway-apikeys' ? 'active' : ''}`}
-          onClick={() => setPage('gateway-apikeys')}
-          title={t('nav.gatewayApiKeys', 'API Key')}
-        >
-          <Key size={20} />
-          <span className="tooltip">{t('nav.gatewayApiKeys', 'API Key')}</span>
-        </button>
-        <button
-          className={`nav-item ${page === 'gateway-logs' ? 'active' : ''}`}
-          onClick={() => setPage('gateway-logs')}
-          title={t('nav.gatewayLogs', '请求日志')}
-        >
-          <FileText size={20} />
-          <span className="tooltip">{t('nav.gatewayLogs', '请求日志')}</span>
-        </button>
-      </div>
-
-      {/* 高级网关 (Sub2api) */}
-      <div className="nav-section nav-section-sub2api">
-        <div className="nav-section-label">{t('nav.advancedGateway', '高级网关')}</div>
-        <button
-          className={`nav-item ${page === 'sub2api' ? 'active' : ''}`}
-          onClick={() => setPage('sub2api')}
-          title={t('nav.sub2api', 'Sub2api 管理')}
-        >
-          <Server size={20} />
-          <span className="tooltip">{t('nav.sub2api', 'Sub2api 管理')}</span>
-        </button>
+        {/* API 网关和 Sub2api 已融合到 Codex 账号管理页面 */}
       </div>
 
       <div className="nav-footer">

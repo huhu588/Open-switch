@@ -1,13 +1,26 @@
 use super::db;
-use super::types::{AccountStatus, GatewayAccount, RouteStrategy};
+use super::account_pool_bridge;
+use super::types::{GatewayAccount, RouteStrategy};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 static ROUND_ROBIN_INDEX: AtomicUsize = AtomicUsize::new(0);
 
 pub fn select_account(strategy: &RouteStrategy) -> Result<GatewayAccount, String> {
-    let accounts = db::get_active_accounts()?;
+    let mut accounts = db::get_active_accounts()?;
+
     if accounts.is_empty() {
-        return Err("没有可用的账号".to_string());
+        tracing::info!("[AccountPool] 数据库无可用账号，尝试从平台同步");
+        if let Ok(sync_result) = account_pool_bridge::sync_platform_accounts_to_gateway() {
+            tracing::info!(
+                "[AccountPool] 自动同步完成: 新增 {} 个账号",
+                sync_result.added
+            );
+            accounts = db::get_active_accounts()?;
+        }
+    }
+
+    if accounts.is_empty() {
+        return Err("没有可用的账号（数据库和平台账号池均为空）".to_string());
     }
 
     let account = match strategy {
@@ -15,7 +28,7 @@ pub fn select_account(strategy: &RouteStrategy) -> Result<GatewayAccount, String
             let idx = ROUND_ROBIN_INDEX.fetch_add(1, Ordering::Relaxed) % accounts.len();
             accounts[idx].clone()
         }
-        RouteStrategy::LeastUsed => {
+        RouteStrategy::LeastUsed | RouteStrategy::QuotaAware => {
             accounts
                 .iter()
                 .min_by_key(|a| a.last_used_at.unwrap_or(0))
@@ -91,6 +104,8 @@ pub fn import_accounts(accounts: Vec<super::types::AccountImportPayload>) -> Res
             account.tags.as_deref(),
             account.group_name.as_deref(),
             account.proxy_url.as_deref(),
+            None,
+            Some("manual"),
         )?;
         count += 1;
     }

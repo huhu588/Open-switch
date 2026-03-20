@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use std::sync::Mutex;
@@ -8,6 +8,19 @@ use tokio::process::{Child, Command};
 static SUB2API_RUNNING: AtomicBool = AtomicBool::new(false);
 static SUB2API_PORT: AtomicU16 = AtomicU16::new(0);
 static SUB2API_PROCESS: Mutex<Option<u32>> = Mutex::new(None);
+static SUB2API_ADMIN_PASSWORD: Mutex<Option<String>> = Mutex::new(None);
+
+const SUB2API_ADMIN_EMAIL: &str = "admin@sub2api.local";
+const SUB2API_DEFAULT_PASSWORD: &str = "AiSwitch2024!@#Local";
+
+pub fn get_sub2api_admin_credentials() -> (String, String) {
+    let password = SUB2API_ADMIN_PASSWORD
+        .lock()
+        .ok()
+        .and_then(|g| g.clone())
+        .unwrap_or_else(|| SUB2API_DEFAULT_PASSWORD.to_string());
+    (SUB2API_ADMIN_EMAIL.to_string(), password)
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Sub2apiStatus {
@@ -66,6 +79,13 @@ pub fn save_sub2api_config(config: &Sub2apiConfig) -> Result<(), String> {
     Ok(())
 }
 
+fn is_valid_binary(path: &Path) -> bool {
+    match std::fs::metadata(path) {
+        Ok(meta) => meta.len() > 0 && meta.is_file(),
+        Err(_) => false,
+    }
+}
+
 fn find_sub2api_binary() -> Result<PathBuf, String> {
     let exe_dir = std::env::current_exe()
         .map_err(|e| format!("获取可执行文件路径失败: {}", e))?
@@ -73,35 +93,110 @@ fn find_sub2api_binary() -> Result<PathBuf, String> {
         .ok_or("无法获取父目录")?
         .to_path_buf();
 
-    let candidates = vec![
-        exe_dir.join("sub2api"),
-        exe_dir.join("sub2api.exe"),
-        exe_dir.join("binaries").join("sub2api"),
-        exe_dir.join("binaries").join("sub2api.exe"),
+    let target_triple = if cfg!(target_os = "windows") {
+        if cfg!(target_arch = "x86_64") {
+            "x86_64-pc-windows-msvc"
+        } else {
+            "aarch64-pc-windows-msvc"
+        }
+    } else if cfg!(target_os = "macos") {
+        if cfg!(target_arch = "aarch64") {
+            "aarch64-apple-darwin"
+        } else {
+            "x86_64-apple-darwin"
+        }
+    } else {
+        "x86_64-unknown-linux-gnu"
+    };
+
+    let ext = if cfg!(target_os = "windows") { ".exe" } else { "" };
+    let triple_name = format!("sub2api-{}{}", target_triple, ext);
+
+    let mut candidates: Vec<PathBuf> = vec![
+        exe_dir.join(format!("sub2api{}", ext)),
+        exe_dir.join(&triple_name),
+        exe_dir.join("binaries").join(format!("sub2api{}", ext)),
+        exe_dir.join("binaries").join(&triple_name),
     ];
+
+    let resource_dir = exe_dir.parent().unwrap_or(&exe_dir).join("resources");
+    candidates.push(resource_dir.join(format!("sub2api{}", ext)));
+    candidates.push(resource_dir.join(&triple_name));
+
+    // 开发模式：从项目 src-tauri/binaries/ 搜索
+    if let Some(project_binaries) = exe_dir
+        .ancestors()
+        .find(|p| p.join("tauri.conf.json").exists())
+        .map(|p| p.join("binaries"))
+    {
+        candidates.push(project_binaries.join(format!("sub2api{}", ext)));
+        candidates.push(project_binaries.join(&triple_name));
+    }
+
+    let mut found_but_empty: Vec<PathBuf> = Vec::new();
 
     for path in &candidates {
         if path.exists() {
-            return Ok(path.clone());
+            if is_valid_binary(path) {
+                return Ok(path.clone());
+            } else {
+                found_but_empty.push(path.clone());
+            }
         }
     }
 
-    let resource_dir = exe_dir.parent().unwrap_or(&exe_dir).join("resources");
-    let resource_candidates = vec![
-        resource_dir.join("sub2api"),
-        resource_dir.join("sub2api.exe"),
-    ];
-
-    for path in &resource_candidates {
-        if path.exists() {
-            return Ok(path.clone());
-        }
+    if !found_but_empty.is_empty() {
+        return Err(format!(
+            "找到 sub2api 文件但无法使用（文件为空或无效）: {:?}。请下载或编译对应平台的 sub2api 可执行文件并放置到正确位置。",
+            found_but_empty
+        ));
     }
 
     Err(format!(
-        "未找到 sub2api 二进制文件，已搜索: {:?}",
+        "未找到 sub2api 二进制文件。请将 sub2api 可执行文件放置到以下任一位置: {:?}",
         candidates
     ))
+}
+
+/// 确保 sub2api 的 config.yaml 和 .installed 文件存在，
+/// 跳过首次运行的 setup wizard，直接以 simple 模式启动主服务。
+fn ensure_sub2api_config(data_dir: &Path, port: u16, mode: &str) -> Result<(), String> {
+    let config_path = data_dir.join("config.yaml");
+    let lock_path = data_dir.join(".installed");
+
+    if !config_path.exists() {
+        let config_content = format!(
+            r#"run_mode: {mode}
+server:
+  host: "127.0.0.1"
+  port: {port}
+  mode: "release"
+log:
+  level: "info"
+  format: "console"
+  output:
+    to_stdout: true
+    to_file: true
+    file_path: ""
+"#,
+            mode = mode,
+            port = port,
+        );
+        std::fs::write(&config_path, config_content)
+            .map_err(|e| format!("写入 sub2api config.yaml 失败: {}", e))?;
+        tracing::info!("[Sub2api] 已生成初始 config.yaml: {}", config_path.display());
+    }
+
+    if !lock_path.exists() {
+        let lock_content = format!(
+            "installed_at={}\n",
+            chrono::Utc::now().to_rfc3339()
+        );
+        std::fs::write(&lock_path, lock_content)
+            .map_err(|e| format!("写入 .installed 锁文件失败: {}", e))?;
+    }
+
+    Ok(())
 }
 
 pub async fn start_sub2api() -> Result<Sub2apiStatus, String> {
@@ -124,16 +219,55 @@ pub async fn start_sub2api() -> Result<Sub2apiStatus, String> {
         .db_path
         .unwrap_or_else(|| data_dir.join("sub2api.db").to_string_lossy().to_string());
 
-    let mut child = Command::new(&binary_path)
-        .env("SUB2API_PORT", port.to_string())
+    ensure_sub2api_config(&data_dir, port, &config.mode)?;
+
+    tracing::info!(
+        "[Sub2api] 使用二进制文件: {}, 数据目录: {}, 端口: {}",
+        binary_path.display(),
+        data_dir.display(),
+        port
+    );
+
+    let admin_password = SUB2API_ADMIN_PASSWORD
+        .lock()
+        .ok()
+        .and_then(|g| g.clone())
+        .unwrap_or_else(|| {
+            let pw = SUB2API_DEFAULT_PASSWORD.to_string();
+            if let Ok(mut guard) = SUB2API_ADMIN_PASSWORD.lock() {
+                *guard = Some(pw.clone());
+            }
+            pw
+        });
+
+    let child = Command::new(&binary_path)
+        .env("SERVER_PORT", port.to_string())
+        .env("SERVER_HOST", "127.0.0.1")
+        .env("DATA_DIR", data_dir.to_string_lossy().to_string())
         .env("SUB2API_DB_PATH", &db_path)
-        .env("SUB2API_MODE", &config.mode)
         .env("SUB2API_DATA_DIR", data_dir.to_string_lossy().to_string())
+        .env("ADMIN_EMAIL", SUB2API_ADMIN_EMAIL)
+        .env("ADMIN_PASSWORD", &admin_password)
+        .env("AUTO_SETUP", "1")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true)
         .spawn()
-        .map_err(|e| format!("启动 sub2api 失败: {}", e))?;
+        .map_err(|e| {
+            let hint = if e.raw_os_error() == Some(193) {
+                "（文件不是有效的可执行程序，可能是空文件或架构不匹配）"
+            } else if e.raw_os_error() == Some(2) {
+                "（文件不存在）"
+            } else {
+                ""
+            };
+            format!(
+                "启动 sub2api 失败: {}{}\n二进制路径: {}",
+                e,
+                hint,
+                binary_path.display()
+            )
+        })?;
 
     let pid = child.id();
 

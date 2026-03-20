@@ -35,6 +35,19 @@ pub fn is_streaming_request(body: &[u8]) -> bool {
     }
 }
 
+pub fn resolve_upstream_for_platform(
+    platform: Option<&str>,
+    config_upstreams: &Option<std::collections::HashMap<String, String>>,
+    default_upstream: &str,
+) -> String {
+    if let (Some(p), Some(upstreams)) = (platform, config_upstreams) {
+        if let Some(url) = upstreams.get(p) {
+            return url.clone();
+        }
+    }
+    default_upstream.to_string()
+}
+
 pub fn rewrite_request_for_upstream(
     path: &str,
     body: &[u8],

@@ -74,7 +74,7 @@ export function normalizeLanguage(lang: string): string {
 
 function resolveSupportedLanguage(lang: string): string {
   const normalized = normalizeLanguage(lang);
-  return supportedLanguages.includes(normalized) ? normalized : 'en';
+  return supportedLanguages.includes(normalized) ? normalized : 'zh-cn';
 }
 
 async function ensureLanguageResources(lang: string): Promise<string> {
@@ -96,9 +96,9 @@ async function ensureLanguageResources(lang: string): Promise<string> {
 
 function getSavedLanguage(): string {
   try {
-    return resolveSupportedLanguage(localStorage.getItem('app-language') || 'en');
+    return resolveSupportedLanguage(localStorage.getItem('app-language') || 'zh-cn');
   } catch {
-    return 'en';
+    return 'zh-cn';
   }
 }
 
@@ -123,7 +123,7 @@ function bootstrapI18n(savedLanguage: string): string {
         'zh-cn': { translation: zhCnResources },
       },
       lng: bootstrapLanguage,
-      fallbackLng: 'en',
+      fallbackLng: 'zh-cn',
       supportedLngs: supportedLanguages,
       lowerCaseLng: true,
       load: 'currentOnly',

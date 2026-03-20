@@ -81,6 +81,31 @@ const PLATFORM_ADAPTERS: Record<PlatformId, TransferAdapter> = {
     exportAccounts: workbuddyService.exportWorkbuddyAccounts,
     importFromJson: workbuddyService.importWorkbuddyFromJson,
   },
+  'claude-code': {
+    listAccounts: async () => [],
+    exportAccounts: async () => '[]',
+    importFromJson: async () => [],
+  },
+  opencode: {
+    listAccounts: async () => [],
+    exportAccounts: async () => '[]',
+    importFromJson: async () => [],
+  },
+  openclaw: {
+    listAccounts: async () => [],
+    exportAccounts: async () => '[]',
+    importFromJson: async () => [],
+  },
+  warp: {
+    listAccounts: async () => [],
+    exportAccounts: async () => '[]',
+    importFromJson: async () => [],
+  },
+  augment: {
+    listAccounts: async () => [],
+    exportAccounts: async () => '[]',
+    importFromJson: async () => [],
+  },
 };
 
 export const ACCOUNT_TRANSFER_SCHEMA = 'ai-switch.account-transfer';

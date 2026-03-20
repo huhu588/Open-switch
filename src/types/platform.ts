@@ -12,7 +12,12 @@ export type PlatformId =
   | 'codebuddy_cn'
   | 'qoder'
   | 'trae'
-  | 'workbuddy';
+  | 'workbuddy'
+  | 'claude-code'
+  | 'opencode'
+  | 'openclaw'
+  | 'warp'
+  | 'augment';
 
 export const ALL_PLATFORM_IDS: PlatformId[] = [
   'antigravity',
@@ -27,6 +32,11 @@ export const ALL_PLATFORM_IDS: PlatformId[] = [
   'qoder',
   'trae',
   'workbuddy',
+  'claude-code',
+  'opencode',
+  'openclaw',
+  'warp',
+  'augment',
 ];
 
 export const PLATFORM_PAGE_MAP: Record<PlatformId, Page> = {
@@ -42,4 +52,9 @@ export const PLATFORM_PAGE_MAP: Record<PlatformId, Page> = {
   qoder: 'qoder',
   trae: 'trae',
   workbuddy: 'workbuddy',
+  'claude-code': 'claude-code',
+  opencode: 'opencode',
+  openclaw: 'openclaw',
+  warp: 'warp',
+  augment: 'augment',
 };

@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Bell, ChevronLeft, X } from 'lucide-react';
+import { useEffect, useMemo, useState, type MouseEvent } from 'react';
+import { Bell, ChevronLeft, Trash2, X } from 'lucide-react';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { useTranslation } from 'react-i18next';
 import type { Page } from '../types/navigation';
@@ -76,6 +76,8 @@ export function AnnouncementCenter({
   const fetchState = useAnnouncementStore((state) => state.fetchState);
   const markAsRead = useAnnouncementStore((state) => state.markAsRead);
   const markAllAsRead = useAnnouncementStore((state) => state.markAllAsRead);
+  const dismiss = useAnnouncementStore((state) => state.dismiss);
+  const dismissAll = useAnnouncementStore((state) => state.dismissAll);
   const translateText = (key: string, fallback: string, options?: Record<string, unknown>): string => {
     const raw = t(key, fallback, options) as unknown;
     return typeof raw === 'string' ? raw : fallback;
@@ -138,6 +140,29 @@ export function AnnouncementCenter({
     setDetailAnnouncement(announcement);
     setDetailFromList(true);
     setListOpen(false);
+  };
+
+  const handleDismissFromList = async (event: MouseEvent, announcement: Announcement) => {
+    event.preventDefault();
+    event.stopPropagation();
+    await dismiss(announcement.id);
+    if (detailAnnouncement?.id === announcement.id) {
+      setDetailAnnouncement(null);
+      setDetailFromList(false);
+    }
+  };
+
+  const handleDismissAll = async () => {
+    await dismissAll();
+    setDetailAnnouncement(null);
+    setDetailFromList(false);
+  };
+
+  const handleDismissCurrentDetail = async () => {
+    if (!detailAnnouncement) return;
+    await dismiss(detailAnnouncement.id);
+    setDetailAnnouncement(null);
+    setDetailFromList(false);
   };
 
   const runAction = async (action: AnnouncementAction) => {
@@ -244,6 +269,15 @@ export function AnnouncementCenter({
                   >
                     {t('common.refresh', '刷新')}
                   </button>
+                  <button
+                    className="announcement-toolbar-text-btn announcement-toolbar-danger"
+                    onClick={() => {
+                      void handleDismissAll();
+                    }}
+                    disabled={sortedAnnouncements.length === 0}
+                  >
+                    {t('announcement.dismissAll', '全部移除')}
+                  </button>
                 </div>
               </div>
 
@@ -254,25 +288,38 @@ export function AnnouncementCenter({
               {sortedAnnouncements.map((announcement) => {
                 const unread = announcementState.unreadIds.includes(announcement.id);
                 return (
-                  <button
-                    key={announcement.id}
-                    className={`announcement-list-item ${unread ? 'is-unread' : ''}`}
-                    onClick={() => {
-                      void handleAnnouncementClick(announcement);
-                    }}
-                  >
-                    <div className="announcement-list-item-top">
-                      <div className="announcement-title-meta">
-                        <span className={`announcement-type-chip ${sanitizeTypeClass(String(announcement.type))}`}>
-                          {currentTypeLabel(String(announcement.type))}
-                        </span>
-                        <strong className="announcement-item-title">{announcement.title}</strong>
-                        {unread && <span className="announcement-unread-dot" />}
+                  <div key={announcement.id} className="announcement-list-item-row">
+                    <button
+                      type="button"
+                      className={`announcement-list-item ${unread ? 'is-unread' : ''}`}
+                      onClick={() => {
+                        void handleAnnouncementClick(announcement);
+                      }}
+                    >
+                      <div className="announcement-list-item-top">
+                        <div className="announcement-title-meta">
+                          <span className={`announcement-type-chip ${sanitizeTypeClass(String(announcement.type))}`}>
+                            {currentTypeLabel(String(announcement.type))}
+                          </span>
+                          <strong className="announcement-item-title">{announcement.title}</strong>
+                          {unread && <span className="announcement-unread-dot" />}
+                        </div>
+                        <span className="announcement-time">{formatTimeAgo(announcement.createdAt, translateText)}</span>
                       </div>
-                      <span className="announcement-time">{formatTimeAgo(announcement.createdAt, translateText)}</span>
-                    </div>
-                    <p className="announcement-summary">{announcement.summary}</p>
-                  </button>
+                      <p className="announcement-summary">{announcement.summary}</p>
+                    </button>
+                    <button
+                      type="button"
+                      className="announcement-list-item-dismiss"
+                      title={t('announcement.dismissFromList', '从列表移除')}
+                      aria-label={t('announcement.dismissFromList', '从列表移除')}
+                      onClick={(event) => {
+                        void handleDismissFromList(event, announcement);
+                      }}
+                    >
+                      <Trash2 size={16} strokeWidth={2} />
+                    </button>
+                  </div>
                 );
               })}
             </div>
@@ -348,10 +395,18 @@ export function AnnouncementCenter({
               )}
             </div>
 
-            <div className="modal-footer">
-              <button className="btn btn-secondary" onClick={() => void closeDetail(false)}>
+            <div className="modal-footer announcement-detail-footer">
+              <button
+                type="button"
+                className="btn btn-secondary announcement-detail-dismiss"
+                onClick={() => void handleDismissCurrentDetail()}
+              >
+                {t('announcement.dismissFromList', '从列表移除')}
+              </button>
+              <button type="button" className="btn btn-secondary" onClick={() => void closeDetail(false)}>
                 {detailAnnouncement.action ? t('announcement.later', '稍后再说') : t('announcement.gotIt', '知道了')}
               </button>
+              {/* 主操作按钮（如「反馈建议」）由 announcements.json 的 action 字段控制；不需要时省略 action 即可 */}
               {detailAnnouncement.action ? (
                 <button
                   className="btn btn-primary"

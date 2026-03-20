@@ -12,6 +12,11 @@ import { CodebuddyIcon } from '../components/icons/CodebuddyIcon';
 import { QoderIcon } from '../components/icons/QoderIcon';
 import { TraeIcon } from '../components/icons/TraeIcon';
 import { WorkbuddyIcon } from '../components/icons/WorkbuddyIcon';
+import { ClaudeCodeIcon } from '../components/icons/ClaudeCodeIcon';
+import { OpenCodeIcon } from '../components/icons/OpenCodeIcon';
+import { OpenClawIcon } from '../components/icons/OpenClawIcon';
+import { WarpIcon } from '../components/icons/WarpIcon';
+import { AugmentIcon } from '../components/icons/AugmentIcon';
 
 export function getPlatformLabel(platformId: PlatformId, _t: TFunction): string {
   switch (platformId) {
@@ -28,7 +33,7 @@ export function getPlatformLabel(platformId: PlatformId, _t: TFunction): string 
     case 'cursor':
       return 'Cursor';
     case 'gemini':
-      return 'Gemini Cli';
+      return 'Gemini';
     case 'codebuddy':
       return 'CodeBuddy';
     case 'codebuddy_cn':
@@ -39,6 +44,16 @@ export function getPlatformLabel(platformId: PlatformId, _t: TFunction): string 
       return _t('nav.trae', 'Trae');
     case 'workbuddy':
       return 'WorkBuddy';
+    case 'claude-code':
+      return 'Claude Code';
+    case 'opencode':
+      return 'OpenCode';
+    case 'openclaw':
+      return 'OpenClaw';
+    case 'warp':
+      return 'Warp';
+    case 'augment':
+      return 'Augment';
     default:
       return platformId;
   }
@@ -70,6 +85,16 @@ export function renderPlatformIcon(platformId: PlatformId, size = 20): ReactNode
       return <TraeIcon style={{ width: size, height: size }} />;
     case 'workbuddy':
       return <WorkbuddyIcon style={{ width: size, height: size }} />;
+    case 'claude-code':
+      return <ClaudeCodeIcon style={{ width: size, height: size }} />;
+    case 'opencode':
+      return <OpenCodeIcon style={{ width: size, height: size }} />;
+    case 'openclaw':
+      return <OpenClawIcon style={{ width: size, height: size }} />;
+    case 'warp':
+      return <WarpIcon style={{ width: size, height: size }} />;
+    case 'augment':
+      return <AugmentIcon style={{ width: size, height: size }} />;
     default:
       return null;
   }

@@ -13,6 +13,11 @@ const TRAY_MIGRATED_PLATFORM_IDS: PlatformId[] = [
   'qoder',
   'trae',
   'workbuddy',
+  'claude-code',
+  'opencode',
+  'warp',
+  'augment',
+  'openclaw',
 ];
 const DEFAULT_CODEBUDDY_GROUP_ID = 'codebuddy-suite';
 
@@ -335,7 +340,16 @@ function normalizeGroupName(raw: unknown, fallbackPlatform: PlatformId): string 
     return 'Trae';
   }
   if (fallbackPlatform === 'gemini') {
-    return 'Gemini Cli';
+    return 'Gemini';
+  }
+  if (fallbackPlatform === 'claude-code') {
+    return 'Claude Code';
+  }
+  if (fallbackPlatform === 'opencode') {
+    return 'OpenCode';
+  }
+  if (fallbackPlatform === 'openclaw') {
+    return 'OpenClaw';
   }
   return fallbackPlatform.charAt(0).toUpperCase() + fallbackPlatform.slice(1);
 }

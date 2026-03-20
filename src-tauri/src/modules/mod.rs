@@ -69,6 +69,7 @@ pub mod workbuddy_oauth;
 
 pub mod gateway;
 pub mod subprocess;
+pub mod session_manager;
 
 pub mod opencode_config;
 pub mod opencode_db;

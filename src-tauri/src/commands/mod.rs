@@ -32,5 +32,7 @@ pub mod workbuddy;
 pub mod workbuddy_instance;
 pub mod gateway;
 pub mod subprocess;
+pub mod sub2api_proxy;
+pub mod session;
 
 pub mod opencode;

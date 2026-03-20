@@ -1,5 +1,7 @@
 # ☕ Support this Project
 
+> Version: v0.16.3 | Updated: 2026-03-19
+
 If you find this project useful, you can support its development by making a donation.
 
 Your support is greatly appreciated! ❤️

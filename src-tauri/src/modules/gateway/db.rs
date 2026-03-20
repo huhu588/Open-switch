@@ -13,6 +13,11 @@ fn db_path() -> PathBuf {
 }
 
 pub fn init_gateway_db() -> Result<(), String> {
+    let mut guard = DB_CONNECTION.lock().unwrap();
+    if guard.is_some() {
+        return Ok(());
+    }
+
     let path = db_path();
     let conn = Connection::open(&path).map_err(|e| format!("打开数据库失败: {}", e))?;
 
@@ -35,7 +40,9 @@ pub fn init_gateway_db() -> Result<(), String> {
             updated_at INTEGER NOT NULL,
             last_used_at INTEGER,
             cooldown_until INTEGER,
-            error_count INTEGER NOT NULL DEFAULT 0
+            error_count INTEGER NOT NULL DEFAULT 0,
+            platform TEXT,
+            source TEXT DEFAULT 'manual'
         );
 
         CREATE TABLE IF NOT EXISTS gateway_api_keys (
@@ -74,7 +81,6 @@ pub fn init_gateway_db() -> Result<(), String> {
     )
     .map_err(|e| format!("创建表失败: {}", e))?;
 
-    let mut guard = DB_CONNECTION.lock().unwrap();
     *guard = Some(conn);
 
     Ok(())
@@ -84,6 +90,7 @@ pub fn with_db<F, R>(f: F) -> Result<R, String>
 where
     F: FnOnce(&Connection) -> Result<R, rusqlite::Error>,
 {
+    init_gateway_db()?;
     let guard = DB_CONNECTION.lock().unwrap();
     let conn = guard.as_ref().ok_or("网关数据库未初始化")?;
     f(conn).map_err(|e| format!("数据库操作失败: {}", e))
@@ -97,13 +104,15 @@ pub fn insert_account(
     tags: Option<&str>,
     group_name: Option<&str>,
     proxy_url: Option<&str>,
+    platform: Option<&str>,
+    source: Option<&str>,
 ) -> Result<(), String> {
     let now = chrono::Utc::now().timestamp();
     with_db(|conn| {
         conn.execute(
-            "INSERT OR REPLACE INTO gateway_accounts (id, email, access_token, refresh_token, status, tags, group_name, proxy_url, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, 'active', ?5, ?6, ?7, ?8, ?8)",
-            params![id, email, access_token, refresh_token, tags, group_name, proxy_url, now],
+            "INSERT OR REPLACE INTO gateway_accounts (id, email, access_token, refresh_token, status, tags, group_name, proxy_url, created_at, updated_at, platform, source)
+             VALUES (?1, ?2, ?3, ?4, 'active', ?5, ?6, ?7, ?8, ?8, ?9, ?10)",
+            params![id, email, access_token, refresh_token, tags, group_name, proxy_url, now, platform, source],
         )?;
         Ok(())
     })
@@ -112,7 +121,7 @@ pub fn insert_account(
 pub fn list_accounts() -> Result<Vec<super::types::GatewayAccount>, String> {
     with_db(|conn| {
         let mut stmt = conn.prepare(
-            "SELECT id, email, access_token, refresh_token, token_expires_at, status, tags, group_name, proxy_url, created_at, updated_at, last_used_at, cooldown_until, error_count
+            "SELECT id, email, access_token, refresh_token, token_expires_at, status, tags, group_name, proxy_url, created_at, updated_at, last_used_at, cooldown_until, error_count, platform, source
              FROM gateway_accounts ORDER BY created_at DESC",
         )?;
         let rows = stmt.query_map([], |row| {
@@ -137,6 +146,8 @@ pub fn list_accounts() -> Result<Vec<super::types::GatewayAccount>, String> {
                 last_used_at: row.get(11)?,
                 cooldown_until: row.get(12)?,
                 error_count: row.get(13)?,
+                platform: row.get(14).ok().unwrap_or(None),
+                source: row.get(15).ok().unwrap_or(None),
             })
         })?;
         rows.collect::<Result<Vec<_>, _>>()
@@ -176,7 +187,7 @@ pub fn get_active_accounts() -> Result<Vec<super::types::GatewayAccount>, String
     with_db(|conn| {
         let now = chrono::Utc::now().timestamp();
         let mut stmt = conn.prepare(
-            "SELECT id, email, access_token, refresh_token, token_expires_at, status, tags, group_name, proxy_url, created_at, updated_at, last_used_at, cooldown_until, error_count
+            "SELECT id, email, access_token, refresh_token, token_expires_at, status, tags, group_name, proxy_url, created_at, updated_at, last_used_at, cooldown_until, error_count, platform, source
              FROM gateway_accounts
              WHERE status = 'active' AND (cooldown_until IS NULL OR cooldown_until < ?1)
              ORDER BY last_used_at ASC NULLS FIRST",
@@ -197,6 +208,8 @@ pub fn get_active_accounts() -> Result<Vec<super::types::GatewayAccount>, String
                 last_used_at: row.get(11)?,
                 cooldown_until: row.get(12)?,
                 error_count: row.get(13)?,
+                platform: row.get(14).ok().unwrap_or(None),
+                source: row.get(15).ok().unwrap_or(None),
             })
         })?;
         rows.collect::<Result<Vec<_>, _>>()

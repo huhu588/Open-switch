@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -11,6 +11,7 @@ const ANNOUNCEMENT_URL: &str =
     "https://raw.githubusercontent.com/jlcodes99/ai-switch/main/announcements.json";
 const ANNOUNCEMENT_CACHE_FILE: &str = "announcement_cache.json";
 const ANNOUNCEMENT_READ_IDS_FILE: &str = "announcement_read_ids.json";
+const ANNOUNCEMENT_DISMISSED_IDS_FILE: &str = "announcement_dismissed_ids.json";
 const ANNOUNCEMENT_LOCAL_OVERRIDE_FILE: &str = "announcements.local.json";
 const CACHE_TTL_MS: i64 = 3_600_000;
 
@@ -137,6 +138,10 @@ fn get_read_ids_path() -> Result<PathBuf, String> {
     Ok(get_shared_dir()?.join(ANNOUNCEMENT_READ_IDS_FILE))
 }
 
+fn get_dismissed_ids_path() -> Result<PathBuf, String> {
+    Ok(get_shared_dir()?.join(ANNOUNCEMENT_DISMISSED_IDS_FILE))
+}
+
 fn get_local_override_path() -> Result<PathBuf, String> {
     Ok(get_shared_dir()?.join(ANNOUNCEMENT_LOCAL_OVERRIDE_FILE))
 }
@@ -230,6 +235,26 @@ fn save_read_ids(ids: &[String]) -> Result<(), String> {
     let content =
         serde_json::to_string_pretty(ids).map_err(|e| format!("序列化公告已读状态失败: {}", e))?;
     fs::write(get_read_ids_path()?, content).map_err(|e| format!("写入公告已读状态失败: {}", e))?;
+    Ok(())
+}
+
+fn get_dismissed_ids() -> Result<Vec<String>, String> {
+    let path = get_dismissed_ids_path()?;
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    let content =
+        fs::read_to_string(path).map_err(|e| format!("读取公告移除状态失败: {}", e))?;
+    if content.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    serde_json::from_str(&content).map_err(|e| format!("解析公告移除状态失败: {}", e))
+}
+
+fn save_dismissed_ids(ids: &[String]) -> Result<(), String> {
+    let content =
+        serde_json::to_string_pretty(ids).map_err(|e| format!("序列化公告移除状态失败: {}", e))?;
+    fs::write(get_dismissed_ids_path()?, content).map_err(|e| format!("写入公告移除状态失败: {}", e))?;
     Ok(())
 }
 
@@ -475,7 +500,11 @@ pub async fn get_announcement_state() -> Result<AnnouncementState, String> {
     let current_version = env!("CARGO_PKG_VERSION");
     let locale = config::get_user_config().language.to_lowercase();
     let raw_announcements = load_announcements_raw().await?;
-    let announcements = filter_announcements(raw_announcements, current_version, &locale);
+    let mut announcements = filter_announcements(raw_announcements, current_version, &locale);
+    let dismissed = get_dismissed_ids()?;
+    let dismissed_set: HashSet<String> = dismissed.into_iter().collect();
+    announcements.retain(|item| !dismissed_set.contains(&item.id));
+
     let read_ids = get_read_ids()?;
 
     let unread_ids: Vec<String> = announcements
@@ -517,4 +546,27 @@ pub async fn mark_all_announcements_as_read() -> Result<(), String> {
 pub async fn force_refresh_announcements() -> Result<AnnouncementState, String> {
     remove_cache()?;
     get_announcement_state().await
+}
+
+pub async fn dismiss_announcement(id: &str) -> Result<(), String> {
+    let mut dismissed = get_dismissed_ids()?;
+    if !dismissed.iter().any(|item| item == id) {
+        dismissed.push(id.to_string());
+        save_dismissed_ids(&dismissed)?;
+    }
+    Ok(())
+}
+
+pub async fn dismiss_all_announcements() -> Result<(), String> {
+    let current_version = env!("CARGO_PKG_VERSION");
+    let locale = config::get_user_config().language.to_lowercase();
+    let raw_announcements = load_announcements_raw().await?;
+    let announcements = filter_announcements(raw_announcements, current_version, &locale);
+    let mut set: HashSet<String> = get_dismissed_ids()?.into_iter().collect();
+    for item in announcements {
+        set.insert(item.id);
+    }
+    let mut merged: Vec<String> = set.into_iter().collect();
+    merged.sort();
+    save_dismissed_ids(&merged)
 }

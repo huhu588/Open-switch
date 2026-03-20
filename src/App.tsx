@@ -9,6 +9,7 @@ import { useTranslation } from 'react-i18next';
 import { FolderOpen, RefreshCw, X } from 'lucide-react';
 import { SideNav } from './components/layout/SideNav';
 import { GlobalModal } from './components/GlobalModal';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import type { QuickSettingsType } from './components/QuickSettingsPopover';
 import { Page } from './types/navigation';
 import { useAutoRefresh } from './hooks/useAutoRefresh';
@@ -81,6 +82,21 @@ const TraeAccountsPage = lazy(() =>
 const WorkbuddyAccountsPage = lazy(() =>
   import('./pages/WorkbuddyAccountsPage').then((module) => ({ default: module.WorkbuddyAccountsPage })),
 );
+const ClaudeCodeAccountsPage = lazy(() =>
+  import('./pages/ClaudeCodeAccountsPage').then((module) => ({ default: module.ClaudeCodeAccountsPage })),
+);
+const OpenCodeAccountsPage = lazy(() =>
+  import('./pages/OpenCodeAccountsPage').then((module) => ({ default: module.OpenCodeAccountsPage })),
+);
+const OpenClawAccountsPage = lazy(() =>
+  import('./pages/OpenClawAccountsPage').then((module) => ({ default: module.OpenClawAccountsPage })),
+);
+const WarpAccountsPage = lazy(() =>
+  import('./pages/WarpAccountsPage').then((module) => ({ default: module.WarpAccountsPage })),
+);
+const AugmentAccountsPage = lazy(() =>
+  import('./pages/AugmentAccountsPage').then((module) => ({ default: module.AugmentAccountsPage })),
+);
 const FingerprintsPage = lazy(() =>
   import('./pages/FingerprintsPage').then((module) => ({ default: module.FingerprintsPage })),
 );
@@ -97,21 +113,6 @@ const SettingsPage = lazy(() =>
 );
 const ManualPage = lazy(() =>
   import('./pages/ManualPage').then((module) => ({ default: module.ManualPage })),
-);
-const GatewayDashboardPage = lazy(() =>
-  import('./pages/GatewayDashboardPage').then((module) => ({ default: module.GatewayDashboardPage })),
-);
-const GatewayAccountPoolPage = lazy(() =>
-  import('./pages/GatewayAccountPoolPage').then((module) => ({ default: module.GatewayAccountPoolPage })),
-);
-const GatewayApiKeysPage = lazy(() =>
-  import('./pages/GatewayApiKeysPage').then((module) => ({ default: module.GatewayApiKeysPage })),
-);
-const GatewayRequestLogPage = lazy(() =>
-  import('./pages/GatewayRequestLogPage').then((module) => ({ default: module.GatewayRequestLogPage })),
-);
-const Sub2apiPage = lazy(() =>
-  import('./pages/Sub2apiPage').then((module) => ({ default: module.Sub2apiPage })),
 );
 const InstancesPage = lazy(() =>
   import('./pages/InstancesPage').then((module) => ({ default: module.InstancesPage })),
@@ -139,6 +140,9 @@ const OhMyPage = lazy(() =>
 );
 const ToolStatusPage = lazy(() =>
   import('./pages/ToolStatusPage').then((module) => ({ default: module.ToolStatusPage })),
+);
+const SessionsPage = lazy(() =>
+  import('./pages/SessionsPage').then((module) => ({ default: module.SessionsPage })),
 );
 const PlatformLayoutModal = lazy(() =>
   import('./components/PlatformLayoutModal').then((module) => ({
@@ -319,7 +323,7 @@ function getQuotaAlertPlatformLabel(
     case 'cursor':
       return 'Cursor';
     case 'gemini':
-      return 'Gemini Cli';
+      return 'Gemini';
     case 'codebuddy':
       return 'CodeBuddy';
     case 'codebuddy_cn':
@@ -2041,6 +2045,8 @@ function App() {
             case 'qoder':
             case 'trae':
             case 'workbuddy':
+            case 'warp':
+            case 'augment':
             case 'manual':
             case 'settings':
               setPage(target as Page);
@@ -2382,6 +2388,7 @@ function App() {
 
       <div className="main-wrapper">
         {/* overview 现在是合并后的账号总览页面 */}
+        <ErrorBoundary>
         <Suspense fallback={suspenseFallback}>
           {page === 'dashboard' && (
             <DashboardPage
@@ -2405,6 +2412,11 @@ function App() {
           {page === 'qoder' && <QoderAccountsPage />}
           {page === 'trae' && <TraeAccountsPage />}
           {page === 'workbuddy' && <WorkbuddyAccountsPage />}
+          {page === 'claude-code' && <ClaudeCodeAccountsPage />}
+          {page === 'opencode' && <OpenCodeAccountsPage />}
+          {page === 'openclaw' && <OpenClawAccountsPage />}
+          {page === 'warp' && <WarpAccountsPage />}
+          {page === 'augment' && <AugmentAccountsPage />}
           {page === 'instances' && <InstancesPage onNavigate={setPage} />}
           {page === 'fingerprints' && <FingerprintsPage onNavigate={setPage} />}
           {page === 'wakeup' && <WakeupTasksPage onNavigate={setPage} />}
@@ -2418,11 +2430,6 @@ function App() {
               }}
             />
           )}
-          {page === 'gateway-dashboard' && <GatewayDashboardPage />}
-          {page === 'gateway-accounts' && <GatewayAccountPoolPage />}
-          {page === 'gateway-apikeys' && <GatewayApiKeysPage />}
-          {page === 'gateway-logs' && <GatewayRequestLogPage />}
-          {page === 'sub2api' && <Sub2apiPage />}
           {page === 'providers' && <ProvidersPage />}
           {page === 'mcp' && <McpPage />}
           {page === 'skills' && <SkillsPage />}
@@ -2431,8 +2438,10 @@ function App() {
           {page === 'devenv' && <DevEnvPage />}
           {page === 'ohmy' && <OhMyPage />}
           {page === 'tool-status' && <ToolStatusPage />}
+          {page === 'sessions' && <SessionsPage />}
           {page === 'settings' && <SettingsPage />}
         </Suspense>
+        </ErrorBoundary>
       </div>
     </div>
   );

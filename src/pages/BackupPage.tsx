@@ -1,7 +1,12 @@
-import { useState, useCallback } from 'react';
+import { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useTranslation } from 'react-i18next';
-import { FolderArchive, Download, Upload, Loader2, CheckCircle, FileText, MessageSquare } from 'lucide-react';
+import {
+  FolderArchive, Download, Upload, Loader2, CheckCircle, FileText,
+  MessageSquare, HardDrive, RefreshCw, Layers, Shield,
+} from 'lucide-react';
+import { useToast } from '../hooks/useToast';
+import { ToastContainer } from '../components/Toast';
 
 interface BackupPreview {
   providers: string[];
@@ -17,13 +22,12 @@ interface ConversationItem { id: string; title: string; platform: string; messag
 
 export function BackupPage() {
   const { t } = useTranslation();
+  const toast = useToast();
   const [activeTab, setActiveTab] = useState<'backup' | 'migration'>('backup');
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
   const [preview, setPreview] = useState<BackupPreview | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
-  const [message, setMessage] = useState('');
-  const [messageType, setMessageType] = useState<'success' | 'error'>('success');
 
   const [chatSources, setChatSources] = useState<ChatSource[]>([]);
   const [conversations, setConversations] = useState<ConversationItem[]>([]);
@@ -32,36 +36,39 @@ export function BackupPage() {
   const [selectedPlatform, setSelectedPlatform] = useState('');
   const [selectedConversations, setSelectedConversations] = useState<Set<string>>(new Set());
 
-  const showMsg = useCallback((msg: string, type: 'success' | 'error') => {
-    setMessage(msg);
-    setMessageType(type);
-    setTimeout(() => setMessage(''), 3000);
-  }, []);
-
   const handleExport = async () => {
     setExporting(true);
     try {
       const path = await invoke<string>('export_backup');
-      showMsg(t('backup.exportSuccess', `Backup exported to: ${path}`), 'success');
-    } catch (e) { showMsg(t('backup.exportFailed', 'Export failed') + ': ' + String(e), 'error'); }
-    finally { setExporting(false); }
+      toast.success(t('backup.exportSuccess', `备份已导出到: ${path}`));
+    } catch (e) {
+      toast.error(String(e));
+    } finally {
+      setExporting(false);
+    }
   };
 
   const handlePreview = async () => {
     setPreviewLoading(true);
     try {
       setPreview(await invoke<BackupPreview>('preview_backup'));
-    } catch (e) { showMsg(t('backup.previewFailed', 'Preview failed') + ': ' + String(e), 'error'); }
-    finally { setPreviewLoading(false); }
+    } catch (e) {
+      toast.error(String(e));
+    } finally {
+      setPreviewLoading(false);
+    }
   };
 
   const handleImport = async () => {
     setImporting(true);
     try {
       await invoke('import_backup');
-      showMsg(t('backup.importSuccess', 'Backup imported successfully'), 'success');
-    } catch (e) { showMsg(t('backup.importFailed', 'Import failed') + ': ' + String(e), 'error'); }
-    finally { setImporting(false); }
+      toast.success(t('backup.importSuccess', '备份已恢复成功'));
+    } catch (e) {
+      toast.error(String(e));
+    } finally {
+      setImporting(false);
+    }
   };
 
   const handleScanChatSources = async () => {
@@ -70,8 +77,12 @@ export function BackupPage() {
       const sources = await invoke<ChatSource[]>('scan_chat_sources');
       setChatSources(sources);
       if (sources.length > 0) setSelectedPlatform(sources[0].platform);
-    } catch (e) { showMsg('Scan failed: ' + String(e), 'error'); }
-    finally { setScanLoading(false); }
+      toast.info(t('backup.scanComplete', `扫描到 ${sources.length} 个来源`));
+    } catch (e) {
+      toast.error(String(e));
+    } finally {
+      setScanLoading(false);
+    }
   };
 
   const handleExtractConversations = async () => {
@@ -81,8 +92,12 @@ export function BackupPage() {
       const convs = await invoke<ConversationItem[]>('extract_conversations', { platform: selectedPlatform });
       setConversations(convs);
       setSelectedConversations(new Set(convs.map(c => c.id)));
-    } catch (e) { showMsg('Extract failed: ' + String(e), 'error'); }
-    finally { setExtracting(false); }
+      toast.success(t('backup.extractSuccess', `提取到 ${convs.length} 个对话`));
+    } catch (e) {
+      toast.error(String(e));
+    } finally {
+      setExtracting(false);
+    }
   };
 
   const handleExportConversations = async () => {
@@ -90,122 +105,214 @@ export function BackupPage() {
     if (ids.length === 0) return;
     try {
       const path = await invoke<string>('export_conversations', { conversationIds: ids, platform: selectedPlatform });
-      showMsg(t('backup.migrationExportSuccess', `Exported to: ${path}`), 'success');
-    } catch (e) { showMsg('Export failed: ' + String(e), 'error'); }
+      toast.success(t('backup.migrationExportSuccess', `已导出到: ${path}`));
+    } catch (e) {
+      toast.error(String(e));
+    }
   };
 
+  const previewItems = preview ? [
+    { label: 'Providers', count: preview.providers.length, icon: Layers },
+    { label: 'MCP Servers', count: preview.mcp_servers.length, icon: HardDrive },
+    { label: 'Skills', count: preview.skills.length, icon: Shield },
+    { label: 'Rules', count: preview.rules.length, icon: FileText },
+  ] : [];
+
   return (
-    <div className="h-full flex flex-col p-4 gap-4">
-      <div className="flex items-center justify-between flex-shrink-0">
-        <div className="flex items-center gap-3">
-          <FolderArchive size={24} className="text-primary" />
-          <h2 className="text-lg font-bold">{t('backup.title', 'Backup & Recovery')}</h2>
+    <div className="page-container" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <ToastContainer toasts={toast.toasts} />
+
+      {/* Header */}
+      <div className="gw-page-header">
+        <div className="gw-page-header-left">
+          <h1 className="gw-page-title">{t('backup.title', '备份与恢复')}</h1>
+          <div className="gw-page-subtitle">
+            {t('backup.subtitle', '导出配置、恢复备份、迁移对话记录')}
+          </div>
         </div>
-        {message && <div className={`text-sm px-4 py-2 rounded-lg ${messageType === 'success' ? 'bg-success/20 text-success' : 'bg-error/20 text-error'}`}>{message}</div>}
       </div>
 
-      <div className="tabs tabs-boxed w-fit self-center">
-        <button className={`tab ${activeTab === 'backup' ? 'tab-active' : ''}`} onClick={() => setActiveTab('backup')}>
-          <FolderArchive size={14} className="mr-1" /> {t('backup.config', 'Config Backup')}
+      {/* Tab Bar */}
+      <div className="gw-tab-bar" style={{ alignSelf: 'center' }}>
+        <button className={`gw-tab ${activeTab === 'backup' ? 'is-active' : ''}`} onClick={() => setActiveTab('backup')}>
+          <FolderArchive size={13} /> {t('backup.config', '配置备份')}
         </button>
-        <button className={`tab ${activeTab === 'migration' ? 'tab-active' : ''}`} onClick={() => setActiveTab('migration')}>
-          <MessageSquare size={14} className="mr-1" /> {t('backup.chatMigration', 'Chat Migration')}
+        <button className={`gw-tab ${activeTab === 'migration' ? 'is-active' : ''}`} onClick={() => setActiveTab('migration')}>
+          <MessageSquare size={13} /> {t('backup.chatMigration', '对话迁移')}
         </button>
       </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto">
+      {/* Content */}
+      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 16 }}>
         {activeTab === 'backup' ? (
-          <div className="space-y-6">
-            <div className="card bg-base-200 p-6">
-              <h3 className="font-semibold mb-4">{t('backup.exportTitle', 'Export Configuration')}</h3>
-              <p className="text-sm opacity-60 mb-4">{t('backup.exportDesc', 'Export all providers, models, MCP servers, skills, and rules to a backup file.')}</p>
-              <div className="flex gap-3">
-                <button className="btn btn-primary" onClick={handleExport} disabled={exporting}>
-                  {exporting ? <Loader2 className="animate-spin" size={16} /> : <Download size={16} />}
-                  {t('backup.export', 'Export Backup')}
+          <>
+            {/* Export Section */}
+            <div className="gw-section">
+              <div className="gw-section-title">
+                <Download size={16} />
+                {t('backup.exportTitle', '导出配置')}
+              </div>
+              <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: 16 }}>
+                {t('backup.exportDesc', '将所有 Provider、模型、MCP 服务器、Skills 和规则导出为备份文件。')}
+              </p>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button className="btn btn-primary btn-sm" onClick={handleExport} disabled={exporting}>
+                  {exporting ? <Loader2 size={14} className="gw-spin" /> : <Download size={14} />}
+                  {t('backup.export', '导出备份')}
                 </button>
-                <button className="btn btn-ghost" onClick={handlePreview} disabled={previewLoading}>
-                  {previewLoading ? <Loader2 className="animate-spin" size={16} /> : <FileText size={16} />}
-                  {t('backup.preview', 'Preview')}
+                <button className="btn btn-ghost btn-sm" onClick={handlePreview} disabled={previewLoading}>
+                  {previewLoading ? <Loader2 size={14} className="gw-spin" /> : <FileText size={14} />}
+                  {t('backup.preview', '预览')}
                 </button>
               </div>
 
               {preview && (
-                <div className="mt-4 p-4 bg-base-300 rounded-lg space-y-2 text-sm">
-                  <div className="flex justify-between"><span className="opacity-60">Providers</span><span className="font-medium">{preview.providers.length}</span></div>
-                  <div className="flex justify-between"><span className="opacity-60">MCP Servers</span><span className="font-medium">{preview.mcp_servers.length}</span></div>
-                  <div className="flex justify-between"><span className="opacity-60">Skills</span><span className="font-medium">{preview.skills.length}</span></div>
-                  <div className="flex justify-between"><span className="opacity-60">Rules</span><span className="font-medium">{preview.rules.length}</span></div>
-                  <div className="flex justify-between"><span className="opacity-60">Settings</span><span className="font-medium">{preview.settings ? <CheckCircle size={14} className="text-success" /> : '-'}</span></div>
+                <div style={{ marginTop: 16 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 10 }}>
+                    {previewItems.map(item => (
+                      <div key={item.label} className="gw-summary-item">
+                        <span className="gw-summary-label" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <item.icon size={10} /> {item.label}
+                        </span>
+                        <span className="gw-summary-value">{item.count}</span>
+                      </div>
+                    ))}
+                    <div className="gw-summary-item">
+                      <span className="gw-summary-label">Settings</span>
+                      <span className="gw-summary-value">
+                        {preview.settings ? <CheckCircle size={16} style={{ color: 'var(--success)' }} /> : '-'}
+                      </span>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
 
-            <div className="card bg-base-200 p-6">
-              <h3 className="font-semibold mb-4">{t('backup.importTitle', 'Import Configuration')}</h3>
-              <p className="text-sm opacity-60 mb-4">{t('backup.importDesc', 'Restore configuration from a backup file.')}</p>
-              <button className="btn btn-secondary" onClick={handleImport} disabled={importing}>
-                {importing ? <Loader2 className="animate-spin" size={16} /> : <Upload size={16} />}
-                {t('backup.import', 'Import Backup')}
+            {/* Import Section */}
+            <div className="gw-section">
+              <div className="gw-section-title">
+                <Upload size={16} />
+                {t('backup.importTitle', '导入配置')}
+              </div>
+              <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: 16 }}>
+                {t('backup.importDesc', '从备份文件恢复配置。')}
+              </p>
+              <button className="btn btn-sm" style={{ background: 'var(--gradient-primary)', color: 'white', border: 'none' }} onClick={handleImport} disabled={importing}>
+                {importing ? <Loader2 size={14} className="gw-spin" /> : <Upload size={14} />}
+                {t('backup.import', '导入备份')}
               </button>
             </div>
-          </div>
+          </>
         ) : (
-          <div className="space-y-6">
-            <div className="card bg-base-200 p-6">
-              <h3 className="font-semibold mb-4">{t('backup.scanSources', 'Scan Chat Sources')}</h3>
-              <p className="text-sm opacity-60 mb-4">{t('backup.scanDesc', 'Scan for conversation data from supported platforms (Cursor, Claude Code, Codex, Windsurf, Trae).')}</p>
-              <button className="btn btn-primary" onClick={handleScanChatSources} disabled={scanLoading}>
-                {scanLoading ? <Loader2 className="animate-spin" size={16} /> : <MessageSquare size={16} />}
-                {t('backup.scan', 'Scan')}
+          <>
+            {/* Scan Sources */}
+            <div className="gw-section">
+              <div className="gw-section-title">
+                <MessageSquare size={16} />
+                {t('backup.scanSources', '扫描对话来源')}
+              </div>
+              <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: 16 }}>
+                {t('backup.scanDesc', '扫描 Cursor、Claude Code、Codex、Windsurf、Trae 等平台的对话数据。')}
+              </p>
+              <button className="btn btn-primary btn-sm" onClick={handleScanChatSources} disabled={scanLoading}>
+                {scanLoading ? <Loader2 size={14} className="gw-spin" /> : <RefreshCw size={14} />}
+                {t('backup.scan', '扫描')}
               </button>
 
               {chatSources.length > 0 && (
-                <div className="mt-4 space-y-2">
+                <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
                   {chatSources.map(source => (
-                    <div key={source.platform} className={`p-3 rounded-lg cursor-pointer transition-all ${selectedPlatform === source.platform ? 'bg-primary/10 border border-primary/30' : 'bg-base-300'}`} onClick={() => setSelectedPlatform(source.platform)}>
-                      <div className="flex items-center justify-between">
-                        <span className="font-medium text-sm">{source.platform}</span>
-                        <span className="text-xs opacity-60">{source.conversation_count} conversations</span>
+                    <div
+                      key={source.platform}
+                      className="gw-account-card"
+                      style={{
+                        cursor: 'pointer',
+                        borderColor: selectedPlatform === source.platform ? 'var(--primary)' : undefined,
+                        background: selectedPlatform === source.platform ? 'var(--primary-light)' : undefined,
+                      }}
+                      onClick={() => setSelectedPlatform(source.platform)}
+                    >
+                      <div className="gw-account-avatar" style={{ background: 'var(--gradient-primary)', width: 32, height: 32, fontSize: '0.7rem' }}>
+                        {source.platform.charAt(0).toUpperCase()}
                       </div>
-                      <div className="text-xs font-mono opacity-40 truncate">{source.path}</div>
+                      <div className="gw-account-info">
+                        <div className="gw-account-email">{source.platform}</div>
+                        <div className="gw-account-meta">
+                          <span className="gw-account-meta-item">{source.conversation_count} {t('backup.conversations', '对话')}</span>
+                        </div>
+                      </div>
                     </div>
                   ))}
 
-                  <button className="btn btn-sm btn-secondary mt-2" onClick={handleExtractConversations} disabled={extracting || !selectedPlatform}>
-                    {extracting ? <Loader2 className="animate-spin" size={14} /> : <Download size={14} />}
-                    {t('backup.extract', 'Extract Conversations')}
+                  <button className="btn btn-sm" style={{ background: 'var(--gradient-primary)', color: 'white', border: 'none', alignSelf: 'flex-start', marginTop: 4 }} onClick={handleExtractConversations} disabled={extracting || !selectedPlatform}>
+                    {extracting ? <Loader2 size={14} className="gw-spin" /> : <Download size={14} />}
+                    {t('backup.extract', '提取对话')}
                   </button>
                 </div>
               )}
             </div>
 
+            {/* Conversations List */}
             {conversations.length > 0 && (
-              <div className="card bg-base-200 p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="font-semibold">{t('backup.conversations', 'Conversations')} ({conversations.length})</h3>
-                  <div className="flex gap-2">
-                    <button className="btn btn-xs btn-ghost" onClick={() => setSelectedConversations(new Set(conversations.map(c => c.id)))}>Select All</button>
-                    <button className="btn btn-xs btn-ghost" onClick={() => setSelectedConversations(new Set())}>Deselect</button>
+              <div className="gw-section">
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+                  <div className="gw-section-title" style={{ marginBottom: 0 }}>
+                    <FileText size={16} />
+                    {t('backup.conversations', '对话')} ({conversations.length})
+                  </div>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button className="btn btn-ghost btn-xs" onClick={() => setSelectedConversations(new Set(conversations.map(c => c.id)))}>
+                      {t('backup.selectAll', '全选')}
+                    </button>
+                    <button className="btn btn-ghost btn-xs" onClick={() => setSelectedConversations(new Set())}>
+                      {t('backup.deselectAll', '取消全选')}
+                    </button>
                   </div>
                 </div>
-                <div className="max-h-64 overflow-y-auto space-y-1">
+                <div style={{ maxHeight: 256, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
                   {conversations.map(conv => (
-                    <label key={conv.id} className="flex items-center gap-2 p-2 rounded hover:bg-base-300 cursor-pointer">
-                      <input type="checkbox" className="checkbox checkbox-sm" checked={selectedConversations.has(conv.id)} onChange={() => setSelectedConversations(prev => { const next = new Set(prev); next.has(conv.id) ? next.delete(conv.id) : next.add(conv.id); return next; })} />
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm truncate">{conv.title}</div>
-                        <div className="text-xs opacity-50">{conv.message_count} messages · {conv.created_at}</div>
+                    <label
+                      key={conv.id}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 10,
+                        padding: '8px 12px',
+                        borderRadius: 'var(--radius-sm)',
+                        cursor: 'pointer',
+                        transition: 'background 0.15s',
+                        background: selectedConversations.has(conv.id) ? 'var(--primary-light)' : 'transparent',
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        className="checkbox checkbox-sm"
+                        checked={selectedConversations.has(conv.id)}
+                        onChange={() => setSelectedConversations(prev => {
+                          const next = new Set(prev);
+                          next.has(conv.id) ? next.delete(conv.id) : next.add(conv.id);
+                          return next;
+                        })}
+                      />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: '0.8rem', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{conv.title}</div>
+                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{conv.message_count} messages · {conv.created_at}</div>
                       </div>
                     </label>
                   ))}
                 </div>
-                <button className="btn btn-primary mt-4" onClick={handleExportConversations} disabled={selectedConversations.size === 0}>
-                  <Download size={14} /> {t('backup.exportSelected', 'Export Selected')} ({selectedConversations.size})
+                <button
+                  className="btn btn-primary btn-sm"
+                  style={{ marginTop: 12 }}
+                  onClick={handleExportConversations}
+                  disabled={selectedConversations.size === 0}
+                >
+                  <Download size={14} />
+                  {t('backup.exportSelected', '导出选中')} ({selectedConversations.size})
                 </button>
               </div>
             )}
-          </div>
+          </>
         )}
       </div>
     </div>

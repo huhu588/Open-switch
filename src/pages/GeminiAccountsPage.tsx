@@ -44,6 +44,7 @@ import type { GeminiAccount } from '../types/gemini';
 import { useProviderAccountsPage } from '../hooks/useProviderAccountsPage';
 import { GeminiOverviewTabsHeader, GeminiTab } from '../components/GeminiOverviewTabsHeader';
 import { GeminiInstancesContent } from './GeminiInstancesPage';
+import { PlatformProviderPanel } from '../components/platform/PlatformProviderPanel';
 
 const CURSOR_FLOW_NOTICE_COLLAPSED_KEY = 'agtools.gemini.flow_notice_collapsed';
 const CURSOR_CURRENT_ACCOUNT_ID_KEY = 'agtools.gemini.current_account_id';
@@ -698,6 +699,9 @@ export function GeminiAccountsPage() {
   return (
     <div className="ghcp-accounts-page gemini-accounts-page">
       <GeminiOverviewTabsHeader active={activeTab} onTabChange={setActiveTab} />
+
+      {activeTab === 'overview' && (
+        <>
       <div className={`ghcp-flow-notice ${isFlowNoticeCollapsed ? 'collapsed' : ''}`} role="note" aria-live="polite">
         <button type="button" className="ghcp-flow-notice-toggle" onClick={() => setIsFlowNoticeCollapsed((prev) => !prev)} aria-expanded={!isFlowNoticeCollapsed}>
           <div className="ghcp-flow-notice-title">
@@ -718,9 +722,6 @@ export function GeminiAccountsPage() {
           </div>
         )}
       </div>
-
-      {activeTab === 'overview' && (
-        <>
       {message && (
         <div className={`message-bar ${message.tone === 'error' ? 'error' : 'success'}`}>
           {message.text}
@@ -1204,6 +1205,10 @@ export function GeminiAccountsPage() {
         </div>
       )}
         </>
+      )}
+
+      {activeTab === 'providers' && (
+        <PlatformProviderPanel modelType="gemini" />
       )}
 
       {activeTab === 'instances' && (

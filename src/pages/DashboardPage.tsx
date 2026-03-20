@@ -2640,6 +2640,9 @@ export function DashboardPage({ onNavigate, onOpenPlatformLayout, onEasterEggTri
     qoder: stats.qoder,
     trae: stats.trae,
     workbuddy: stats.workbuddy,
+    'claude-code': 0,
+    opencode: 0,
+    openclaw: 0,
   };
 
   const entryCounts = useMemo(() => {
@@ -2933,7 +2936,7 @@ export function DashboardPage({ onNavigate, onOpenPlatformLayout, onEasterEggTri
           <div className="main-card-header">
             <div className="header-title">
               <GeminiIcon style={{ width: 18, height: 18 }} />
-              <h3>Gemini Cli</h3>
+              <h3>Gemini</h3>
             </div>
             <button
               className="header-action-btn"

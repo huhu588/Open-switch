@@ -1188,6 +1188,10 @@
   "codex": {
     "title": "Codex 帳號管理",
     "subtitle": "管理您的 OpenAI Codex 帳號",
+    "tab": {
+      "gateway": "API 閘道",
+      "gatewaySubtitle": "管理 API 閘道服務、帳號池、金鑰和請求日誌。"
+    },
     "instances": {
       "subtitle": "多實例獨立配置，多帳號並行運行。",
       "comingSoon": "多開實例功能即將上線",
@@ -1726,6 +1730,8 @@
     "title": "消息通知",
     "empty": "暫無消息",
     "markAllRead": "全部已讀",
+    "dismissFromList": "從列表移除",
+    "dismissAll": "全部移除",
     "gotIt": "我知道了",
     "later": "稍後再說",
     "new": "新",

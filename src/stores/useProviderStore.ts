@@ -42,11 +42,14 @@ interface ProviderState {
   models: ModelItem[];
   loading: boolean;
   error: string | null;
+  searchQuery: string;
+  setSearchQuery: (query: string) => void;
   loadProviders: () => Promise<void>;
   loadModels: () => Promise<void>;
   selectProvider: (name: string) => Promise<void>;
   deleteProvider: (name: string) => Promise<void>;
   toggleProvider: (name: string, enabled: boolean) => Promise<void>;
+  updateProvider: (name: string, data: { base_url?: string; api_key?: string; description?: string }) => Promise<void>;
   loadAllDeployedProviders: () => Promise<DeployedProviderItem[]>;
   fetchSiteModels: () => Promise<string[]>;
   addModelsBatch: (modelIds: string[]) => Promise<void>;
@@ -58,6 +61,8 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
   models: [],
   loading: false,
   error: null,
+  searchQuery: '',
+  setSearchQuery: (query: string) => set({ searchQuery: query }),
 
   loadProviders: async () => {
     set({ loading: true, error: null });
@@ -108,6 +113,14 @@ export const useProviderStore = create<ProviderState>((set, get) => ({
   toggleProvider: async (name: string, enabled: boolean) => {
     await invoke('toggle_provider', { name, enabled });
     await get().loadProviders();
+  },
+
+  updateProvider: async (name: string, data: { base_url?: string; api_key?: string; description?: string }) => {
+    await invoke('update_provider', { name, input: data });
+    await get().loadProviders();
+    if (get().selectedProvider === name) {
+      await get().loadModels();
+    }
   },
 
   loadAllDeployedProviders: async () => {

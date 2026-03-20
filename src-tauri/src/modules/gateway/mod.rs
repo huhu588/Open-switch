@@ -2,6 +2,7 @@ pub mod server;
 pub mod router;
 pub mod proxy;
 pub mod account_pool;
+pub mod account_pool_bridge;
 pub mod api_key;
 pub mod request_log;
 pub mod protocol_adapter;

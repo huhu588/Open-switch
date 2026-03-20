@@ -1,6 +1,6 @@
 import { ReactNode, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Bot, Github, Layers, HelpCircle } from 'lucide-react';
+import { Bot, Github, Layers, HelpCircle, Settings } from 'lucide-react';
 import { CodexIcon } from '../icons/CodexIcon';
 import { WindsurfIcon } from '../icons/WindsurfIcon';
 import { KiroIcon } from '../icons/KiroIcon';
@@ -9,6 +9,11 @@ import { GeminiIcon } from '../icons/GeminiIcon';
 import { CodebuddyIcon } from '../icons/CodebuddyIcon';
 import { QoderIcon } from '../icons/QoderIcon';
 import { WorkbuddyIcon } from '../icons/WorkbuddyIcon';
+import { ClaudeCodeIcon } from '../icons/ClaudeCodeIcon';
+import { OpenCodeIcon } from '../icons/OpenCodeIcon';
+import { OpenClawIcon } from '../icons/OpenClawIcon';
+import { WarpIcon } from '../icons/WarpIcon';
+import { AugmentIcon } from '../icons/AugmentIcon';
 import { PlatformId } from '../../types/platform';
 import {
   findGroupByPlatform,
@@ -18,7 +23,7 @@ import {
 import { getPlatformLabel } from '../../utils/platformMeta';
 import { PlatformGroupSwitcher } from './PlatformGroupSwitcher';
 
-export type PlatformOverviewTab = 'overview' | 'instances';
+export type PlatformOverviewTab = 'overview' | 'instances' | 'providers';
 export type PlatformOverviewHeaderId =
   | 'codex'
   | 'github-copilot'
@@ -30,7 +35,16 @@ export type PlatformOverviewHeaderId =
   | 'codebuddy_cn'
   | 'qoder'
   | 'trae'
-  | 'workbuddy';
+  | 'workbuddy'
+  | 'claude-code'
+  | 'opencode'
+  | 'openclaw'
+  | 'warp'
+  | 'augment';
+
+const PROVIDER_ENABLED_PLATFORMS: Set<PlatformOverviewHeaderId> = new Set([
+  'claude-code', 'opencode', 'openclaw', 'gemini',
+]);
 
 interface PlatformOverviewTabsHeaderProps {
   platform: PlatformOverviewHeaderId;
@@ -71,7 +85,7 @@ const CONFIGS: Record<PlatformOverviewHeaderId, PlatformOverviewConfig> = {
     overviewIcon: <CursorIcon className="tab-icon" />,
   },
   gemini: {
-    platformLabel: 'Gemini Cli',
+    platformLabel: 'Gemini',
     overviewIcon: <GeminiIcon className="tab-icon" />,
   },
   codebuddy: {
@@ -93,6 +107,26 @@ const CONFIGS: Record<PlatformOverviewHeaderId, PlatformOverviewConfig> = {
   workbuddy: {
     platformLabel: 'WorkBuddy',
     overviewIcon: <WorkbuddyIcon className="tab-icon" />,
+  },
+  'claude-code': {
+    platformLabel: 'Claude Code',
+    overviewIcon: <ClaudeCodeIcon className="tab-icon" />,
+  },
+  opencode: {
+    platformLabel: 'OpenCode',
+    overviewIcon: <OpenCodeIcon className="tab-icon" />,
+  },
+  openclaw: {
+    platformLabel: 'OpenClaw',
+    overviewIcon: <OpenClawIcon className="tab-icon" />,
+  },
+  warp: {
+    platformLabel: 'Warp',
+    overviewIcon: <WarpIcon className="tab-icon" />,
+  },
+  augment: {
+    platformLabel: 'Augment',
+    overviewIcon: <AugmentIcon className="tab-icon" />,
   },
 };
 
@@ -132,25 +166,31 @@ export function PlatformOverviewTabsHeader({
     [switchablePlatforms, currentGroup, t],
   );
   const headerTitle = `${config.platformLabel} ${t('settings.general.accountManagement', '账号管理')}`;
+  const showProviders = PROVIDER_ENABLED_PLATFORMS.has(platform);
   const tabs: TabSpec[] = [
     {
       key: 'overview',
-      // Reuse Antigravity tab translations across platform account pages.
       label: t('overview.title', '账号总览'),
       icon: config.overviewIcon,
     },
+    ...(showProviders ? [{
+      key: 'providers' as const,
+      label: t('providers.tabTitle', 'Provider 配置'),
+      icon: <Settings className="tab-icon" />,
+    }] : []),
     {
       key: 'instances',
-      // Reuse Antigravity tab translations across platform account pages.
       label: t('instances.title', '多开实例'),
       icon: <Layers className="tab-icon" />,
     },
   ];
 
   const subtitle =
-    active === 'instances'
-      ? t('instances.subtitle', '多实例独立配置，多账号并行运行。')
-      : t('overview.subtitle', '实时监控所有账号的配额状态。');
+    active === 'providers'
+      ? t('providers.tabSubtitle', '管理此平台的 API 提供商和模型配置。')
+      : active === 'instances'
+        ? t('instances.subtitle', '多实例独立配置，多账号并行运行。')
+        : t('overview.subtitle', '实时监控所有账号的配额状态。');
 
   return (
     <>

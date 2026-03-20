@@ -1,4 +1,4 @@
-﻿// Tauri Commands module
+// Tauri Commands module
 
 pub mod backup;
 pub mod provider;
@@ -26,6 +26,7 @@ pub mod augment;
 pub mod warp;
 pub mod kiro;
 pub mod antigravity;
+pub mod openclaw;
 
 pub use backup::*;
 pub use provider::*;
@@ -53,3 +54,4 @@ pub use augment::*;
 pub use warp::*;
 pub use kiro::*;
 pub use antigravity::*;
+pub use openclaw::*;

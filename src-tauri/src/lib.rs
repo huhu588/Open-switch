@@ -213,7 +213,7 @@ pub fn run() {
                     logger::log_error(&format!("[Tray] 后台更新托盘菜单失败: {}", e));
                 }
             });
-
+            
             Ok(())
         })
         .on_window_event(|window, event| match event {
@@ -337,6 +337,8 @@ pub fn run() {
             commands::announcement::announcement_mark_as_read,
             commands::announcement::announcement_mark_all_as_read,
             commands::announcement::announcement_force_refresh,
+            commands::announcement::announcement_dismiss,
+            commands::announcement::announcement_dismiss_all,
             // Group Commands
             commands::group::get_group_settings,
             commands::group::save_group_settings,
@@ -677,12 +679,20 @@ pub fn run() {
             commands::gateway::list_request_logs,
             commands::gateway::get_request_log_summary,
             commands::gateway::clear_request_logs,
+            commands::gateway::sync_accounts_to_gateway,
+            commands::gateway::get_platform_account_stats,
+            commands::gateway::sync_accounts_to_sub2api,
+            commands::gateway::get_unified_account_pool,
             // Subprocess Commands
             commands::subprocess::start_sub2api,
             commands::subprocess::stop_sub2api,
             commands::subprocess::get_sub2api_status,
             commands::subprocess::get_sub2api_port,
             commands::subprocess::save_sub2api_config,
+            // Sub2api Proxy Commands
+            commands::sub2api_proxy::sub2api_proxy,
+            commands::sub2api_proxy::sub2api_login,
+            commands::sub2api_proxy::sub2api_clear_auth,
             // === OpenCode Provider Commands ===
             commands::opencode::get_providers,
             commands::opencode::get_provider,
@@ -963,6 +973,19 @@ pub fn run() {
             commands::opencode::sync_mcp_to_antigravity,
             commands::opencode::import_mcp_from_antigravity,
             commands::opencode::ensure_antigravity_rules_dir,
+            // === OpenCode OpenClaw Config Commands ===
+            commands::opencode::get_openclaw_status,
+            commands::opencode::get_openclaw_config_path,
+            commands::opencode::get_openclaw_agents_content,
+            commands::opencode::save_openclaw_agents_content,
+            commands::opencode::get_openclaw_soul_content,
+            commands::opencode::save_openclaw_soul_content,
+            commands::opencode::get_claude_config_path,
+            // === Session Manager Commands ===
+            commands::session::list_sessions,
+            commands::session::get_session_messages,
+            commands::session::search_sessions,
+            commands::session::delete_session,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

@@ -1,4 +1,4 @@
-﻿// Configuration module
+// Configuration module
 // 配置管理模块
 
 pub mod detector;
@@ -15,6 +15,7 @@ pub mod augment_manager;
 pub mod warp_manager;
 pub mod kiro_manager;
 pub mod antigravity_manager;
+pub mod openclaw_manager;
 pub mod open_switch_manager;
 
 pub use thiserror::Error;

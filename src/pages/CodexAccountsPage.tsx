@@ -28,6 +28,9 @@ import {
   FileText,
   ExternalLink,
   Pencil,
+  Router,
+  Key,
+  Server,
 } from 'lucide-react';
 import { useCodexAccountStore } from '../stores/useCodexAccountStore';
 import * as codexService from '../services/codexService';
@@ -50,7 +53,13 @@ import { openUrl } from '@tauri-apps/plugin-opener';
 import { CodexOverviewTabsHeader, CodexTab } from '../components/CodexOverviewTabsHeader';
 import { CodexInstancesContent } from './CodexInstancesPage';
 import { QuickSettingsPopover } from '../components/QuickSettingsPopover';
+import { GatewayDashboardPage } from './GatewayDashboardPage';
+import { GatewayAccountPoolPage } from './GatewayAccountPoolPage';
+import { GatewayApiKeysPage } from './GatewayApiKeysPage';
+import { GatewayRequestLogPage } from './GatewayRequestLogPage';
+import { Sub2apiPage } from './Sub2apiPage';
 import { useProviderAccountsPage } from '../hooks/useProviderAccountsPage';
+import { PlatformProviderPanel } from '../components/platform/PlatformProviderPanel';
 import type { CodexAccount } from '../types/codex';
 import {
   CODEX_CODE_REVIEW_QUOTA_VISIBILITY_CHANGED_EVENT,
@@ -81,6 +90,8 @@ const CODEX_USAGE_URL = 'https://platform.openai.com/usage';
 
 export function CodexAccountsPage() {
   const [activeTab, setActiveTab] = useState<CodexTab>('overview');
+  type GatewaySubTab = 'dashboard' | 'accounts' | 'apikeys' | 'logs' | 'sub2api';
+  const [gatewaySubTab, setGatewaySubTab] = useState<GatewaySubTab>('dashboard');
   const untaggedKey = '__untagged__';
 
   const store = useCodexAccountStore();
@@ -1653,6 +1664,44 @@ export function CodexAccountsPage() {
 
       {activeTab === 'instances' && (
         <CodexInstancesContent accountsForSelect={sortedAccountsForInstances} />
+      )}
+
+      {activeTab === 'providers' && (
+        <PlatformProviderPanel modelType="codex" />
+      )}
+
+      {activeTab === 'gateway' && (
+        <>
+          <div className="gw-sub-tabs">
+            <button className={`gw-sub-tab${gatewaySubTab === 'dashboard' ? ' active' : ''}`} onClick={() => setGatewaySubTab('dashboard')}>
+              <Router size={14} />
+              <span>{t('nav.gatewayDashboard', '仪表盘')}</span>
+            </button>
+            <button className={`gw-sub-tab${gatewaySubTab === 'accounts' ? ' active' : ''}`} onClick={() => setGatewaySubTab('accounts')}>
+              <Globe size={14} />
+              <span>{t('nav.gatewayAccounts', '账号池')}</span>
+            </button>
+            <button className={`gw-sub-tab${gatewaySubTab === 'apikeys' ? ' active' : ''}`} onClick={() => setGatewaySubTab('apikeys')}>
+              <Key size={14} />
+              <span>{t('nav.gatewayApiKeys', 'API Key')}</span>
+            </button>
+            <button className={`gw-sub-tab${gatewaySubTab === 'logs' ? ' active' : ''}`} onClick={() => setGatewaySubTab('logs')}>
+              <FileText size={14} />
+              <span>{t('nav.gatewayLogs', '请求日志')}</span>
+            </button>
+            <button className={`gw-sub-tab${gatewaySubTab === 'sub2api' ? ' active' : ''}`} onClick={() => setGatewaySubTab('sub2api')}>
+              <Server size={14} />
+              <span>{t('nav.sub2api', 'Sub2api')}</span>
+            </button>
+          </div>
+          <div className="gw-sub-content">
+            {gatewaySubTab === 'dashboard' && <GatewayDashboardPage embedded />}
+            {gatewaySubTab === 'accounts' && <GatewayAccountPoolPage embedded />}
+            {gatewaySubTab === 'apikeys' && <GatewayApiKeysPage embedded />}
+            {gatewaySubTab === 'logs' && <GatewayRequestLogPage embedded />}
+            {gatewaySubTab === 'sub2api' && <Sub2apiPage embedded />}
+          </div>
+        </>
       )}
     </div>
   );

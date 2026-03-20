@@ -20,3 +20,13 @@ pub async fn announcement_mark_all_as_read() -> Result<(), String> {
 pub async fn announcement_force_refresh() -> Result<AnnouncementState, String> {
     announcement::force_refresh_announcements().await
 }
+
+#[tauri::command]
+pub async fn announcement_dismiss(id: String) -> Result<(), String> {
+    announcement::dismiss_announcement(&id).await
+}
+
+#[tauri::command]
+pub async fn announcement_dismiss_all() -> Result<(), String> {
+    announcement::dismiss_all_announcements().await
+}

@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import type { AnnouncementState } from '../types/announcement';
 import {
+  dismissAllAnnouncements,
+  dismissAnnouncement,
   forceRefreshAnnouncements,
   getAnnouncementState,
   markAllAnnouncementsAsRead,
@@ -20,6 +22,8 @@ interface AnnouncementStoreState {
   fetchState: (forceRefresh?: boolean) => Promise<AnnouncementState>;
   markAsRead: (id: string) => Promise<AnnouncementState>;
   markAllAsRead: () => Promise<AnnouncementState>;
+  dismiss: (id: string) => Promise<AnnouncementState>;
+  dismissAll: () => Promise<AnnouncementState>;
 }
 
 export const useAnnouncementStore = create<AnnouncementStoreState>((set) => ({
@@ -62,6 +66,36 @@ export const useAnnouncementStore = create<AnnouncementStoreState>((set) => ({
       await markAllAnnouncementsAsRead();
     } catch (error) {
       console.error('全部标记公告已读失败:', error);
+    }
+
+    const nextState = await getAnnouncementState().catch((error) => {
+      console.error('刷新公告状态失败:', error);
+      return EMPTY_STATE;
+    });
+    set({ state: nextState });
+    return nextState;
+  },
+
+  dismiss: async (id: string) => {
+    try {
+      await dismissAnnouncement(id);
+    } catch (error) {
+      console.error('移除公告失败:', error);
+    }
+
+    const nextState = await getAnnouncementState().catch((error) => {
+      console.error('刷新公告状态失败:', error);
+      return EMPTY_STATE;
+    });
+    set({ state: nextState });
+    return nextState;
+  },
+
+  dismissAll: async () => {
+    try {
+      await dismissAllAnnouncements();
+    } catch (error) {
+      console.error('全部移除公告失败:', error);
     }
 
     const nextState = await getAnnouncementState().catch((error) => {
