@@ -2643,6 +2643,8 @@ export function DashboardPage({ onNavigate, onOpenPlatformLayout, onEasterEggTri
     'claude-code': 0,
     opencode: 0,
     openclaw: 0,
+    warp: 0,
+    augment: 0,
   };
 
   const entryCounts = useMemo(() => {

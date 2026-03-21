@@ -1,4 +1,4 @@
-﻿//! 对话迁移模块
+//! 对话迁移模块
 //!
 //! 从 Cursor、Claude Code、Codex、Windsurf、Trae(海外版)、Trae CN 提取完整对话历史，
 //! 导出为 JSONL 文件，并支持在另一台电脑导入（自动去重）。
@@ -565,7 +565,11 @@ fn parse_vscode_message(msg: &serde_json::Value) -> Option<ExtractedMessage> {
         role, content,
         model: get_str_field(msg, &["model", "modelId", "modelName"]),
         timestamp: extract_timestamp(msg),
-        tool_use: msg.get("toolCalls").or_else(|| msg.get("toolResults")).or_else(|| msg.get("capabilityResults")).cloned(),
+        tool_use: msg.get("toolCalls")
+            .or_else(|| msg.get("toolResults"))
+            .or_else(|| msg.get("capabilityResults"))
+            .or_else(|| msg.get("toolFormerData"))
+            .cloned(),
     })
 }
 
@@ -577,7 +581,11 @@ fn parse_bubble_message(bubble: &serde_json::Value) -> Option<ExtractedMessage> 
         role, content,
         model: get_str_field(bubble, &["model", "modelId", "modelName"]),
         timestamp: extract_timestamp(bubble),
-        tool_use: bubble.get("toolCalls").or_else(|| bubble.get("toolResults")).or_else(|| bubble.get("capabilityResults")).cloned(),
+        tool_use: bubble.get("toolCalls")
+            .or_else(|| bubble.get("toolResults"))
+            .or_else(|| bubble.get("capabilityResults"))
+            .or_else(|| bubble.get("toolFormerData"))
+            .cloned(),
     })
 }
 
@@ -605,6 +613,53 @@ fn extract_timestamp(msg: &serde_json::Value) -> Option<String> {
         else if let Some(ts) = v.as_f64() { Some((ts as i64).to_string()) }
         else { v.as_str().map(|s| s.to_string()) }
     })
+}
+
+fn stringify_tool_former_value(value: &serde_json::Value) -> Option<String> {
+    match value {
+        serde_json::Value::Null => None,
+        serde_json::Value::String(s) => {
+            let trimmed = s.trim();
+            if trimmed.is_empty() {
+                return None;
+            }
+            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(trimmed) {
+                return stringify_tool_former_value(&parsed).or_else(|| Some(trimmed.to_string()));
+            }
+            Some(trimmed.to_string())
+        }
+        serde_json::Value::Object(_) | serde_json::Value::Array(_) => serde_json::to_string(value).ok().filter(|s| !s.is_empty()),
+        _ => Some(value.to_string()),
+    }
+}
+
+fn extract_tool_former_text(msg: &serde_json::Value) -> Option<String> {
+    let tool = msg.get("toolFormerData")?;
+    let name = tool.get("name")
+        .or_else(|| tool.get("toolName"))
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .unwrap_or("unknown_tool");
+    let status = tool.get("status")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty());
+    let params = tool.get("params").and_then(stringify_tool_former_value);
+    let result = tool.get("result")
+        .or_else(|| tool.get("output"))
+        .or_else(|| tool.get("response"))
+        .and_then(stringify_tool_former_value);
+
+    let mut lines = vec![match status {
+        Some(status) => format!("[工具调用] {} ({})", name, status),
+        None => format!("[工具调用] {}", name),
+    }];
+    if let Some(params) = params {
+        lines.push(format!("参数: {}", params));
+    }
+    if let Some(result) = result {
+        lines.push(format!("结果: {}", result));
+    }
+    Some(lines.join("\n"))
 }
 
 /// 内容提取：rawText > text > content > message > value > richText > codeBlocks > 最长字符串
@@ -643,6 +698,9 @@ fn extract_content_text(msg: &serde_json::Value) -> Option<String> {
             }).collect();
             if !parts.is_empty() { return Some(parts.join("\n\n")); }
         }
+    }
+    if let Some(tool_summary) = extract_tool_former_text(msg) {
+        return Some(tool_summary);
     }
     // 最后手段：最长字符串
     if let Some(obj) = msg.as_object() {

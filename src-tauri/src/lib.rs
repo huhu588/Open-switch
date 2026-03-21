@@ -689,6 +689,15 @@ pub fn run() {
             commands::subprocess::get_sub2api_status,
             commands::subprocess::get_sub2api_port,
             commands::subprocess::save_sub2api_config,
+            // Cursor Welfare Commands
+            commands::subprocess::start_cursor_welfare,
+            commands::subprocess::stop_cursor_welfare,
+            commands::subprocess::get_cursor_welfare_status,
+            commands::subprocess::get_cursor_welfare_port,
+            commands::subprocess::get_cursor_welfare_config,
+            commands::subprocess::save_cursor_welfare_config,
+            commands::subprocess::check_cursor_welfare_binary,
+            commands::subprocess::share_cursor_welfare_to_sub2api,
             // Sub2api Proxy Commands
             commands::sub2api_proxy::sub2api_proxy,
             commands::sub2api_proxy::sub2api_login,
@@ -703,6 +712,7 @@ pub fn run() {
             commands::opencode::toggle_provider,
             commands::opencode::check_provider_applied,
             commands::opencode::apply_config,
+            commands::opencode::import_local_provider_configs,
             commands::opencode::get_deployed_providers,
             commands::opencode::remove_deployed_provider,
             commands::opencode::import_deployed_provider,
@@ -794,6 +804,7 @@ pub fn run() {
             commands::opencode::delete_open_switch_provider,
             // === OpenCode OhMy Commands ===
             commands::opencode::check_ohmy_status,
+            commands::opencode::get_ohmy_version_info,
             commands::opencode::get_available_models,
             commands::opencode::get_agent_infos,
             commands::opencode::install_bun,
@@ -904,6 +915,7 @@ pub fn run() {
             commands::opencode::get_proxy_usage_trend,
             commands::opencode::get_proxy_usage_trend_by_model,
             commands::opencode::get_provider_stats,
+            commands::opencode::get_project_stats,
             commands::opencode::clear_proxy_usage_stats,
             // === OpenCode Unified Config Commands ===
             commands::opencode::get_open_switch_providers,
@@ -980,7 +992,10 @@ pub fn run() {
             commands::opencode::save_openclaw_agents_content,
             commands::opencode::get_openclaw_soul_content,
             commands::opencode::save_openclaw_soul_content,
+            commands::opencode::apply_provider_to_openclaw,
             commands::opencode::get_claude_config_path,
+            // === Cursor Welfare Provider Fan-out ===
+            commands::opencode::apply_cursor_welfare_to_tools,
             // === Session Manager Commands ===
             commands::session::list_sessions,
             commands::session::get_session_messages,

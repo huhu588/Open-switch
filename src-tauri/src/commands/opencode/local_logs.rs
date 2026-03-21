@@ -1,8 +1,9 @@
-﻿//! 本地日志解析和导入模块
+//! 本地日志解析和导入模块
 //!
 //! 支持从 Claude Code、Codex CLI、Gemini CLI 和 Opencode 的本地日志文件中解析使用统计数据
 
-use crate::modules::opencode_db::Database;
+use base64::Engine as _;
+use crate::modules::{cursor_account, logger, opencode_db::Database};
 use crate::opencode_error::AppError;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
@@ -82,6 +83,34 @@ pub struct ScanResult {
     pub augment_entries: u32,
     /// Augment 数据库路径
     pub augment_path: Option<String>,
+    /// GitHub Copilot 文件数
+    pub github_copilot_files: u32,
+    pub github_copilot_entries: u32,
+    pub github_copilot_path: Option<String>,
+    /// CodeBuddy 文件数
+    pub codebuddy_files: u32,
+    pub codebuddy_entries: u32,
+    pub codebuddy_path: Option<String>,
+    /// CodeBuddy CN 文件数
+    pub codebuddy_cn_files: u32,
+    pub codebuddy_cn_entries: u32,
+    pub codebuddy_cn_path: Option<String>,
+    /// Qoder 文件数
+    pub qoder_files: u32,
+    pub qoder_entries: u32,
+    pub qoder_path: Option<String>,
+    /// Trae 文件数
+    pub trae_files: u32,
+    pub trae_entries: u32,
+    pub trae_path: Option<String>,
+    /// WorkBuddy 文件数
+    pub workbuddy_files: u32,
+    pub workbuddy_entries: u32,
+    pub workbuddy_path: Option<String>,
+    /// OpenClaw 文件数
+    pub openclaw_files: u32,
+    pub openclaw_entries: u32,
+    pub openclaw_path: Option<String>,
     /// 数据库中已有的本地导入记录数
     pub existing_records: u32,
 }
@@ -154,6 +183,41 @@ pub struct LocalLogEntry {
     pub session_id: String,
     /// 项目名称
     pub project_name: Option<String>,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Deserialize)]
+struct CursorUsageCsvRow {
+    #[serde(rename = "Date")]
+    date: String,
+    #[serde(default, rename = "Kind")]
+    kind: Option<String>,
+    #[serde(rename = "Model")]
+    model: String,
+    #[serde(default, rename = "Max Mode")]
+    max_mode: Option<String>,
+    #[serde(default, rename = "Input (w/ Cache Write)")]
+    input_with_cache_write: Option<String>,
+    #[serde(default, rename = "Input (w/o Cache Write)")]
+    input_without_cache_write: Option<String>,
+    #[serde(default, rename = "Cache Read")]
+    cache_read: Option<String>,
+    #[serde(default, rename = "Output Tokens")]
+    output_tokens: Option<String>,
+    #[serde(default, rename = "Total Tokens")]
+    total_tokens: Option<String>,
+    #[serde(default, rename = "Cost")]
+    cost: Option<String>,
+    #[serde(default, rename = "Cost to you")]
+    cost_to_you: Option<String>,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone)]
+struct CursorOfficialImportBatch {
+    entries: Vec<LocalLogEntry>,
+    range_start: i64,
+    range_end: i64,
 }
 
 /// 会话统计信息
@@ -1428,6 +1492,14 @@ fn count_cursor_sessions(db_path: &PathBuf) -> Option<u32> {
     .unwrap_or(0);
     count += item_count;
 
+    let pane_count: u32 = conn.query_row(
+        "SELECT COUNT(*) FROM ItemTable WHERE key LIKE 'workbench.panel.composerChatViewPane.%'",
+        [],
+        |row| row.get(0),
+    )
+    .unwrap_or(0);
+    count += pane_count;
+
     // cursorDiskKV: Composer/Agent（仅 globalStorage）
     let has_cursor_kv = conn
         .query_row(
@@ -1478,6 +1550,33 @@ fn query_itemtable_value(conn: &rusqlite::Connection, key: &str) -> Option<Vec<u
     )
     .ok()
     .flatten()
+}
+
+fn query_itemtable_entries_like(conn: &rusqlite::Connection, pattern: &str) -> Vec<(String, Vec<u8>)> {
+    let mut entries = Vec::new();
+    let Ok(mut stmt) = conn.prepare("SELECT key, value FROM ItemTable WHERE key LIKE ?1") else {
+        return entries;
+    };
+
+    let Ok(rows) = stmt.query_map([pattern], |row| {
+        let key: String = row.get(0)?;
+        let value = row
+            .get::<_, Vec<u8>>(1)
+            .ok()
+            .or_else(|| row.get::<_, String>(1).ok().map(|s| s.into_bytes()));
+        Ok((key, value))
+    }) else {
+        return entries;
+    };
+
+    for row_result in rows.flatten() {
+        let (key, value_opt) = row_result;
+        if let Some(value_bytes) = value_opt {
+            entries.push((key, value_bytes));
+        }
+    }
+
+    entries
 }
 
 /// 解析 JSON 数据（兼容 BLOB/TEXT）
@@ -1540,10 +1639,13 @@ fn parse_cursor_db(path: &PathBuf) -> Vec<LocalLogEntry> {
         )
         .is_ok();
 
-    if has_cursor_kv {
-        let mut composer_rows: Vec<(String, serde_json::Value)> = Vec::new();
-        let mut need_bubbles = false;
+    let bubble_token_map = if has_cursor_kv {
+        Some(load_cursor_bubble_token_map(&conn))
+    } else {
+        None
+    };
 
+    if has_cursor_kv {
         if let Ok(mut stmt) = conn.prepare(
             "SELECT key, value FROM cursorDiskKV WHERE key LIKE 'composerData:%'"
         ) {
@@ -1558,39 +1660,121 @@ fn parse_cursor_db(path: &PathBuf) -> Vec<LocalLogEntry> {
                 for row_result in rows.flatten() {
                     let (key, value_opt) = row_result;
                     let Some(value_bytes) = value_opt else { continue };
-                    if let Some(json) = parse_json_bytes(&value_bytes) {
-                        let has_conv = json
-                            .get("conversation")
-                            .and_then(|c| c.as_array())
-                            .map(|arr| !arr.is_empty())
-                            .unwrap_or(false);
-                        if !has_conv {
-                            need_bubbles = true;
-                        }
-                        composer_rows.push((key, json));
-                    }
+                    let Some(json) = parse_json_bytes(&value_bytes) else { continue };
+                    entries.extend(parse_cursor_composer_data(
+                        &conn,
+                        &json,
+                        &key,
+                        workspace_id.as_deref(),
+                        bubble_token_map.as_ref(),
+                    ));
                 }
             }
         }
+    }
 
-        let bubble_token_map = if need_bubbles {
-            Some(load_cursor_bubble_token_map(&conn))
-        } else {
-            None
-        };
+    for (key, value_bytes) in query_itemtable_entries_like(&conn, "workbench.panel.composerChatViewPane.%") {
+        let Some(json) = parse_json_bytes(&value_bytes) else { continue };
+        entries.extend(parse_cursor_itemtable_payload(
+            &conn,
+            &json,
+            &key,
+            workspace_id.as_deref(),
+            bubble_token_map.as_ref(),
+        ));
+    }
 
-        for (key, json) in composer_rows {
-            entries.extend(parse_cursor_composer_data(
-                &conn,
-                &json,
-                &key,
-                workspace_id.as_deref(),
-                bubble_token_map.as_ref(),
-            ));
+    for entry in entries.iter_mut() {
+        // 逗号分隔的模型名只取第一个
+        if let Some(first) = entry.model.split(',').next() {
+            let trimmed = first.trim();
+            if trimmed != entry.model {
+                entry.model = trimmed.to_string();
+            }
+        }
+        // Cursor 本地不存储缓存 token，按 input * 62.6 估算 cache_read
+        if entry.cache_read_tokens == 0 && entry.input_tokens > 0 {
+            entry.cache_read_tokens = (entry.input_tokens as f64 * 62.6) as u32;
         }
     }
 
     entries
+}
+
+fn parse_cursor_itemtable_payload(
+    conn: &rusqlite::Connection,
+    json: &serde_json::Value,
+    key: &str,
+    workspace_id: Option<&str>,
+    bubble_token_map: Option<&BubbleTokenMap>,
+) -> Vec<LocalLogEntry> {
+    if json.get("tabs").and_then(|v| v.as_array()).is_some() {
+        return parse_cursor_chat_data(json, workspace_id);
+    }
+    if json.get("allComposers").and_then(|v| v.as_array()).is_some() {
+        return parse_cursor_workspace_composer(json, workspace_id);
+    }
+    if json.get("conversation").and_then(|v| v.as_array()).is_some()
+        || json.get("composerId").is_some()
+    {
+        return parse_cursor_composer_data(conn, json, key, workspace_id, bubble_token_map);
+    }
+    if json.get("bubbles").and_then(|v| v.as_array()).is_some() {
+        return parse_cursor_chat_pane_item(json, key, workspace_id);
+    }
+    Vec::new()
+}
+
+fn parse_cursor_chat_pane_item(
+    json: &serde_json::Value,
+    key: &str,
+    workspace_id: Option<&str>,
+) -> Vec<LocalLogEntry> {
+    let Some(bubbles) = json.get("bubbles").and_then(|b| b.as_array()) else {
+        return Vec::new();
+    };
+    if bubbles.is_empty() {
+        return Vec::new();
+    }
+
+    let model_hint = json.get("modelId")
+        .or_else(|| json.get("model"))
+        .or_else(|| json.get("modelName"))
+        .and_then(|v| v.as_str());
+    let (input_tokens, output_tokens) = estimate_tokens_from_messages(bubbles, model_hint);
+    if input_tokens == 0 && output_tokens == 0 {
+        return Vec::new();
+    }
+
+    let fallback_tab_id = key.rsplit('.').next().unwrap_or("unknown");
+    let tab_id = json.get("tabId")
+        .or_else(|| json.get("composerId"))
+        .and_then(|v| v.as_str())
+        .unwrap_or(fallback_tab_id);
+    let title = json.get("chatTitle")
+        .or_else(|| json.get("name"))
+        .or_else(|| json.get("title"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("Untitled");
+    let timestamp = extract_cursor_timestamp(json);
+    let session_id = if let Some(id) = workspace_id {
+        format!("cursor-chat-{}-{}", id, tab_id)
+    } else {
+        format!("cursor-chat-{}", tab_id)
+    };
+
+    vec![LocalLogEntry {
+        source: "cursor".to_string(),
+        timestamp,
+        model: model_hint.unwrap_or("cursor-chat").to_string(),
+        input_tokens,
+        output_tokens,
+        cache_read_tokens: 0,
+        cache_creation_tokens: 0,
+        cost_usd: None,
+        session_id,
+        project_name: Some(title.to_string()),
+    }]
 }
 
 /// 解析 Cursor Chat 模式数据 (workbench.panel.aichat.view.aichat.chatdata)
@@ -1721,6 +1905,9 @@ fn parse_cursor_workspace_composer(json: &serde_json::Value, workspace_id: Optio
 type BubbleTokenMap = HashMap<String, (u32, u32)>;
 
 static TOKENIZER_CACHE: OnceLock<Mutex<HashMap<String, Arc<CoreBPE>>>> = OnceLock::new();
+#[allow(dead_code)]
+const CURSOR_USAGE_EVENTS_CSV_URL: &str =
+    "https://cursor.com/api/dashboard/export-usage-events-csv?strategy=tokens";
 
 fn tokenizer_for_model(model: &str) -> Arc<CoreBPE> {
     let cleaned = clean_model_id(model).to_lowercase();
@@ -1752,6 +1939,252 @@ fn count_tokens_for_text(text: &str, model: Option<&str>) -> usize {
     let model_name = model.unwrap_or("cl100k_base");
     let tokenizer = tokenizer_for_model(model_name);
     tokenizer.encode_with_special_tokens(text).len()
+}
+
+#[allow(dead_code)]
+fn extract_workos_user_id_from_cursor_access_token(jwt: &str) -> Option<String> {
+    let parts: Vec<&str> = jwt.split('.').collect();
+    if parts.len() < 2 {
+        return None;
+    }
+
+    let payload_b64 = parts[1].replace('-', "+").replace('_', "/");
+    let padded = match payload_b64.len() % 4 {
+        2 => format!("{}==", payload_b64),
+        3 => format!("{}=", payload_b64),
+        _ => payload_b64,
+    };
+
+    let decoded = base64::engine::general_purpose::STANDARD
+        .decode(padded)
+        .ok()?;
+    let value: serde_json::Value = serde_json::from_slice(&decoded).ok()?;
+    let sub = value.get("sub")?.as_str()?;
+    let user_id = sub.rsplit('|').next().unwrap_or(sub);
+    if user_id.starts_with("user_") {
+        Some(user_id.to_string())
+    } else {
+        None
+    }
+}
+
+#[allow(dead_code)]
+fn build_cursor_session_cookie_from_access_token(access_token: &str) -> Option<String> {
+    let user_id = extract_workos_user_id_from_cursor_access_token(access_token)?;
+    Some(format!(
+        "WorkosCursorSessionToken={}%3A%3A{}",
+        user_id, access_token
+    ))
+}
+
+#[allow(dead_code)]
+fn parse_cursor_csv_u32(value: Option<&str>) -> u32 {
+    value
+        .map(|raw| raw.trim())
+        .filter(|raw| !raw.is_empty())
+        .and_then(|raw| raw.replace(',', "").parse::<u64>().ok())
+        .map(|parsed| parsed.min(u32::MAX as u64) as u32)
+        .unwrap_or(0)
+}
+
+#[allow(dead_code)]
+fn parse_cursor_csv_cost(value: Option<&str>) -> Option<f64> {
+    let raw = value?.trim();
+    if raw.is_empty() {
+        return None;
+    }
+    if raw.eq_ignore_ascii_case("included") {
+        return Some(0.0);
+    }
+
+    raw.trim_start_matches('$')
+        .replace(',', "")
+        .parse::<f64>()
+        .ok()
+}
+
+#[allow(dead_code)]
+fn parse_cursor_csv_timestamp(value: &str) -> Option<i64> {
+    chrono::DateTime::parse_from_rfc3339(value)
+        .ok()
+        .map(|dt| dt.timestamp())
+}
+
+#[allow(dead_code)]
+async fn fetch_cursor_usage_events_csv(access_token: &str) -> Result<String, String> {
+    let cookie = build_cursor_session_cookie_from_access_token(access_token)
+        .ok_or_else(|| "无法从 Cursor access token 解析 WorkOS 用户 ID".to_string())?;
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(20))
+        .build()
+        .map_err(|e| format!("创建 Cursor usage HTTP 客户端失败: {}", e))?;
+
+    let response = client
+        .get(CURSOR_USAGE_EVENTS_CSV_URL)
+        .header("Accept", "text/csv,*/*")
+        .header(
+            "User-Agent",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+        )
+        .header("Cookie", cookie)
+        .send()
+        .await
+        .map_err(|e| format!("请求 Cursor usage CSV 失败: {}", e))?;
+
+    let status = response.status().as_u16();
+    if status == 401 || status == 403 {
+        return Err("Cursor 会话已过期或未认证，请重新导入账号".to_string());
+    }
+    if status != 200 {
+        return Err(format!("Cursor usage CSV 返回异常状态码: {}", status));
+    }
+
+    response
+        .text()
+        .await
+        .map_err(|e| format!("读取 Cursor usage CSV 失败: {}", e))
+}
+
+#[allow(dead_code)]
+fn parse_cursor_official_usage_csv(
+    account_id: &str,
+    account_label: Option<&str>,
+    csv_text: &str,
+) -> Result<Option<CursorOfficialImportBatch>, String> {
+    let normalized_csv = csv_text.trim_start_matches('\u{feff}');
+    let mut reader = csv::ReaderBuilder::new()
+        .trim(csv::Trim::All)
+        .from_reader(normalized_csv.as_bytes());
+
+    let mut entries = Vec::new();
+    let mut range_start = i64::MAX;
+    let mut range_end = i64::MIN;
+
+    for row in reader.deserialize::<CursorUsageCsvRow>() {
+        let row = row.map_err(|e| format!("解析 Cursor usage CSV 行失败: {}", e))?;
+        let timestamp = match parse_cursor_csv_timestamp(&row.date) {
+            Some(value) => value,
+            None => continue,
+        };
+
+        let model = clean_model_id(&row.model);
+        if model.is_empty() {
+            continue;
+        }
+
+        let input_tokens = parse_cursor_csv_u32(row.input_without_cache_write.as_deref());
+        let cache_creation_tokens = parse_cursor_csv_u32(row.input_with_cache_write.as_deref());
+        let cache_read_tokens = parse_cursor_csv_u32(row.cache_read.as_deref());
+        let output_tokens = parse_cursor_csv_u32(row.output_tokens.as_deref());
+
+        if input_tokens == 0
+            && output_tokens == 0
+            && cache_read_tokens == 0
+            && cache_creation_tokens == 0
+        {
+            continue;
+        }
+
+        let cost_usd = parse_cursor_csv_cost(row.cost_to_you.as_deref())
+            .or_else(|| parse_cursor_csv_cost(row.cost.as_deref()));
+
+        let row_signature = format!(
+            "{}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
+            account_id,
+            row.date,
+            row.kind.as_deref().unwrap_or(""),
+            row.model,
+            row.max_mode.as_deref().unwrap_or(""),
+            row.input_with_cache_write.as_deref().unwrap_or(""),
+            row.input_without_cache_write.as_deref().unwrap_or(""),
+            row.cache_read.as_deref().unwrap_or(""),
+            row.output_tokens.as_deref().unwrap_or(""),
+            row.total_tokens.as_deref().unwrap_or(""),
+        );
+
+        let project_name = account_label
+            .map(|label| label.trim())
+            .filter(|label| !label.is_empty())
+            .map(|label| format!("Cursor 官方用量 · {}", label));
+
+        entries.push(LocalLogEntry {
+            source: "cursor".to_string(),
+            timestamp,
+            model,
+            input_tokens,
+            output_tokens,
+            cache_read_tokens,
+            cache_creation_tokens,
+            cost_usd,
+            session_id: format!("cursor-official-{:x}", md5::compute(row_signature.as_bytes())),
+            project_name,
+        });
+
+        range_start = range_start.min(timestamp);
+        range_end = range_end.max(timestamp);
+    }
+
+    if entries.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(CursorOfficialImportBatch {
+            entries,
+            range_start,
+            range_end,
+        }))
+    }
+}
+
+#[allow(dead_code)]
+async fn load_cursor_official_import_batch() -> Result<Option<CursorOfficialImportBatch>, String> {
+    let accounts = cursor_account::list_accounts();
+    if accounts.is_empty() {
+        return Ok(None);
+    }
+
+    let mut all_entries = Vec::new();
+    let mut range_start = i64::MAX;
+    let mut range_end = i64::MIN;
+
+    for account in accounts {
+        if account.access_token.trim().is_empty() {
+            continue;
+        }
+
+        match fetch_cursor_usage_events_csv(&account.access_token).await {
+            Ok(csv_text) => match parse_cursor_official_usage_csv(
+                account.id.as_str(),
+                Some(account.email.as_str()),
+                &csv_text,
+            ) {
+                Ok(Some(batch)) => {
+                    range_start = range_start.min(batch.range_start);
+                    range_end = range_end.max(batch.range_end);
+                    all_entries.extend(batch.entries);
+                }
+                Ok(None) => {}
+                Err(err) => logger::log_warn(&format!(
+                    "[Local Logs] 解析 Cursor 官方 usage CSV 失败: account={}, error={}",
+                    account.id, err
+                )),
+            },
+            Err(err) => logger::log_warn(&format!(
+                "[Local Logs] 拉取 Cursor 官方 usage CSV 失败: account={}, error={}",
+                account.id, err
+            )),
+        }
+    }
+
+    if all_entries.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(CursorOfficialImportBatch {
+            entries: all_entries,
+            range_start,
+            range_end,
+        }))
+    }
 }
 
 fn parse_cursor_composer_data(
@@ -2582,6 +3015,249 @@ fn get_augment_log_path() -> Option<PathBuf> {
     paths.into_iter().find(|p| p.to_string_lossy().contains("globalStorage"))
 }
 
+// ---- Trae ----
+fn scan_trae_logs() -> (Vec<PathBuf>, u32) {
+    scan_vscode_app_logs(&["Trae"])
+}
+
+fn get_trae_log_path() -> Option<PathBuf> {
+    let paths = get_vscode_app_db_paths(&["Trae"]);
+    paths.into_iter().find(|p| p.to_string_lossy().contains("globalStorage"))
+}
+
+// ============================================================================
+// OpenClaw 日志解析 (JSONL 会话文件)
+// ============================================================================
+
+/// 获取 OpenClaw 会话目录
+fn get_openclaw_sessions_dir() -> Option<PathBuf> {
+    let home = dirs::home_dir()?;
+
+    // 支持环境变量覆盖
+    if let Ok(state_dir) = std::env::var("OPENCLAW_STATE_DIR") {
+        let sessions_dir = PathBuf::from(state_dir).join("agents").join("main").join("sessions");
+        if sessions_dir.exists() { return Some(sessions_dir); }
+    }
+
+    let sessions_dir = home.join(".openclaw").join("agents").join("main").join("sessions");
+    if sessions_dir.exists() { Some(sessions_dir) } else { None }
+}
+
+/// 获取 OpenClaw 根目录（用于显示）
+fn get_openclaw_base_path() -> Option<PathBuf> {
+    let home = dirs::home_dir()?;
+    if let Ok(state_dir) = std::env::var("OPENCLAW_STATE_DIR") {
+        let p = PathBuf::from(state_dir);
+        if p.exists() { return Some(p); }
+    }
+    let p = home.join(".openclaw");
+    if p.exists() { Some(p) } else { None }
+}
+
+/// 扫描 OpenClaw 会话文件
+fn scan_openclaw_logs() -> (Vec<PathBuf>, u32) {
+    let Some(sessions_dir) = get_openclaw_sessions_dir() else {
+        return (vec![], 0);
+    };
+
+    let mut files: Vec<PathBuf> = Vec::new();
+    if let Ok(entries) = fs::read_dir(&sessions_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) == Some("jsonl")
+                && path.file_name().and_then(|n| n.to_str()) != Some("sessions.json")
+            {
+                files.push(path);
+            }
+        }
+    }
+
+    let mut entry_count = 0u32;
+    for file in &files {
+        if let Ok(content) = fs::read_to_string(file) {
+            for line in content.lines() {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(line) {
+                    if json.get("type").and_then(|t| t.as_str()) == Some("message") {
+                        if let Some(msg) = json.get("message") {
+                            if msg.get("role").and_then(|r| r.as_str()) == Some("assistant") {
+                                if msg.get("usage").is_some() {
+                                    entry_count += 1;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    (files, entry_count)
+}
+
+/// 解析 OpenClaw 会话文件为 LocalLogEntry
+fn parse_openclaw_session_file(path: &PathBuf) -> Vec<LocalLogEntry> {
+    let mut entries: Vec<LocalLogEntry> = Vec::new();
+    let Ok(content) = fs::read_to_string(path) else {
+        return entries;
+    };
+
+    let mut session_id = String::new();
+    let mut session_cwd = String::new();
+    let mut current_provider = String::from("openclaw");
+    let mut current_model = String::from("unknown");
+
+    for line in content.lines() {
+        let Ok(json) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+
+        let msg_type = json.get("type").and_then(|t| t.as_str()).unwrap_or("");
+
+        match msg_type {
+            "session" => {
+                session_id = json.get("id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                session_cwd = json.get("cwd")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+            }
+            "model_change" => {
+                if let Some(provider) = json.get("provider").and_then(|v| v.as_str()) {
+                    current_provider = provider.to_string();
+                }
+                if let Some(model_id) = json.get("modelId").and_then(|v| v.as_str()) {
+                    current_model = model_id.to_string();
+                }
+            }
+            "message" => {
+                let Some(msg) = json.get("message") else { continue; };
+                if msg.get("role").and_then(|r| r.as_str()) != Some("assistant") { continue; }
+                let Some(usage) = msg.get("usage") else { continue; };
+
+                let input_tokens = usage.get("input").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+                let output_tokens = usage.get("output").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+                let cache_read = usage.get("cacheRead").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+                let cache_write = usage.get("cacheWrite").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+
+                if input_tokens == 0 && output_tokens == 0 { continue; }
+
+                let model = msg.get("model")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(&current_model)
+                    .to_string();
+
+                let provider = msg.get("provider")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(&current_provider)
+                    .to_string();
+
+                let msg_id = json.get("id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+
+                let timestamp = json.get("timestamp")
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+                    .map(|dt| dt.timestamp())
+                    .or_else(|| msg.get("timestamp")
+                        .and_then(|v| v.as_i64())
+                        .map(|ts| if ts > 1_000_000_000_000 { ts / 1000 } else { ts })
+                    )
+                    .unwrap_or_else(|| chrono::Utc::now().timestamp());
+
+                let cost_usd = usage.get("cost")
+                    .and_then(|c| c.get("total"))
+                    .and_then(|v| v.as_f64());
+
+                let project_name = if !session_cwd.is_empty() {
+                    PathBuf::from(&session_cwd)
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .map(|s| s.to_string())
+                } else {
+                    None
+                };
+
+                let entry_id = format!("openclaw-{}-{}", session_id, msg_id);
+
+                entries.push(LocalLogEntry {
+                    session_id: entry_id,
+                    model,
+                    input_tokens,
+                    output_tokens,
+                    cache_creation_tokens: cache_write,
+                    cache_read_tokens: cache_read,
+                    timestamp,
+                    source: "openclaw".to_string(),
+                    project_name,
+                    cost_usd,
+                });
+            }
+            _ => {}
+        }
+    }
+
+    entries
+}
+
+/// 解析 OpenClaw 会话统计
+fn parse_openclaw_session_stats(path: &PathBuf) -> SessionStats {
+    let mut stats = SessionStats::default();
+    let Ok(content) = fs::read_to_string(path) else {
+        return stats;
+    };
+
+    for line in content.lines() {
+        let Ok(json) = serde_json::from_str::<serde_json::Value>(line) else { continue; };
+        let msg_type = json.get("type").and_then(|t| t.as_str()).unwrap_or("");
+        if msg_type != "message" { continue; }
+
+        let Some(msg) = json.get("message") else { continue; };
+        let role = msg.get("role").and_then(|r| r.as_str()).unwrap_or("");
+
+        match role {
+            "user" => {
+                if let Some(content_arr) = msg.get("content").and_then(|c| c.as_array()) {
+                    let has_tool_result = content_arr.iter().any(|item| {
+                        item.get("type").and_then(|t| t.as_str()) == Some("toolResult")
+                    });
+                    if !has_tool_result {
+                        stats.conversation_count += 1;
+                    }
+                }
+            }
+            "assistant" => {
+                if let Some(content_arr) = msg.get("content").and_then(|c| c.as_array()) {
+                    for block in content_arr {
+                        let block_type = block.get("type").and_then(|t| t.as_str());
+                        match block_type {
+                            Some("thinking") => {
+                                if let Some(text) = block.get("thinking").and_then(|t| t.as_str()) {
+                                    stats.thinking_time_ms += (text.len() as u64).saturating_mul(2);
+                                }
+                            }
+                            Some("toolCall") => {
+                                if let Some(tool_name) = block.get("name").and_then(|n| n.as_str()) {
+                                    let normalized = normalize_tool_name(tool_name);
+                                    *stats.tool_calls.entry(normalized).or_insert(0) += 1;
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    stats
+}
+
 // ============================================================================
 // Warp 日志解析
 // ============================================================================
@@ -2739,34 +3415,40 @@ fn parse_warp_db(db_path: &PathBuf) -> Vec<LocalLogEntry> {
 
 /// 获取服务商特定的模型定价
 fn get_provider_model_pricing(conn: &rusqlite::Connection, provider_id: &str, model_id: &str) -> Option<(Decimal, Decimal, Decimal, Decimal)> {
-    let cleaned = clean_model_id(model_id);
+    for candidate in candidate_model_ids_for_pricing(model_id) {
+        let result = conn.query_row(
+            "SELECT input_cost_per_million, output_cost_per_million,
+                    cache_read_cost_per_million, cache_creation_cost_per_million
+             FROM provider_model_pricing WHERE provider_id = ?1 AND model_id = ?2",
+            [provider_id, &candidate],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                ))
+            },
+        );
 
-    // 先查询服务商特定定价
-    let result = conn.query_row(
-        "SELECT input_cost_per_million, output_cost_per_million,
-                cache_read_cost_per_million, cache_creation_cost_per_million
-         FROM provider_model_pricing WHERE provider_id = ?1 AND model_id = ?2",
-        [provider_id, &cleaned],
-        |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, String>(3)?,
-            ))
-        },
-    );
-
-    match result {
-        Ok((input, output, cache_read, cache_creation)) => Some((
-            Decimal::from_str(&input).unwrap_or(Decimal::ZERO),
-            Decimal::from_str(&output).unwrap_or(Decimal::ZERO),
-            Decimal::from_str(&cache_read).unwrap_or(Decimal::ZERO),
-            Decimal::from_str(&cache_creation).unwrap_or(Decimal::ZERO),
-        )),
-        // 如果没有服务商特定定价，回退到默认定价
-        Err(_) => get_model_pricing_default(conn, &cleaned),
+        match result {
+            Ok((input, output, cache_read, cache_creation)) => {
+                return Some((
+                    Decimal::from_str(&input).unwrap_or(Decimal::ZERO),
+                    Decimal::from_str(&output).unwrap_or(Decimal::ZERO),
+                    Decimal::from_str(&cache_read).unwrap_or(Decimal::ZERO),
+                    Decimal::from_str(&cache_creation).unwrap_or(Decimal::ZERO),
+                ));
+            }
+            Err(_) => {
+                if let Some(default_pricing) = get_model_pricing_default(conn, &candidate) {
+                    return Some(default_pricing);
+                }
+            }
+        }
     }
+
+    None
 }
 
 /// 获取默认模型定价
@@ -2804,6 +3486,113 @@ fn clean_model_id(model_id: &str) -> String {
     without_suffix.trim().replace('@', "-")
 }
 
+fn push_pricing_candidate(candidates: &mut Vec<String>, candidate: impl Into<String>) {
+    let candidate = candidate.into();
+    if candidate.is_empty() || candidates.iter().any(|existing| existing == &candidate) {
+        return;
+    }
+    candidates.push(candidate);
+}
+
+fn strip_model_variant_suffix(model_id: &str) -> String {
+    model_id
+        .trim_end_matches("-fast")
+        .trim_end_matches("-thinking")
+        .trim_end_matches("-xhigh")
+        .trim_end_matches("-high")
+        .trim_end_matches("-medium")
+        .trim_end_matches("-max")
+        .to_string()
+}
+
+fn candidate_model_ids_for_pricing(model_id: &str) -> Vec<String> {
+    // 逗号分隔的复合模型名 -> 取第一个
+    let primary = model_id.split(',').next().unwrap_or(model_id).trim();
+    let cleaned = clean_model_id(primary);
+    let stripped = strip_model_variant_suffix(&cleaned);
+    let mut candidates = Vec::new();
+
+    push_pricing_candidate(&mut candidates, cleaned.clone());
+    push_pricing_candidate(&mut candidates, stripped.clone());
+
+    let lower = stripped.to_lowercase();
+
+    // Cursor 专属模型映射
+    if lower == "cursor-composer" || lower == "cursor composer" {
+        push_pricing_candidate(&mut candidates, "composer-2");
+    }
+    if lower.starts_with("composer-") {
+        push_pricing_candidate(&mut candidates, &lower);
+    }
+    if lower == "cursor-aiservice" || lower == "default" {
+        push_pricing_candidate(&mut candidates, "cursor-auto");
+    }
+
+    // GPT 系列
+    if lower.starts_with("gpt-5.4-codex") {
+        push_pricing_candidate(&mut candidates, "gpt-5.4-codex");
+    }
+    if lower.starts_with("gpt-5.4") {
+        push_pricing_candidate(&mut candidates, "gpt-5.4");
+    }
+    if lower.starts_with("gpt-5.2-codex") {
+        push_pricing_candidate(&mut candidates, "gpt-5.2-codex");
+    }
+    if lower.starts_with("gpt-5.2") {
+        push_pricing_candidate(&mut candidates, "gpt-5.2");
+    }
+    if lower.starts_with("gpt-5.1-codex") {
+        push_pricing_candidate(&mut candidates, "gpt-5.1-codex");
+    }
+    if lower.starts_with("gpt-5.1") {
+        push_pricing_candidate(&mut candidates, "gpt-5.1");
+    }
+    if lower.starts_with("gpt-5-codex") {
+        push_pricing_candidate(&mut candidates, "gpt-5-codex");
+    }
+    if lower.starts_with("gpt-5") {
+        push_pricing_candidate(&mut candidates, "gpt-5");
+    }
+
+    // Claude 系列
+    if lower.starts_with("claude-4.6-opus") || lower.starts_with("claude-4.5-opus") {
+        push_pricing_candidate(&mut candidates, "claude-opus-4-5-20251101");
+        push_pricing_candidate(&mut candidates, "claude-opus-4-20250514");
+    }
+    if lower.starts_with("claude-4.6-sonnet") || lower.starts_with("claude-4.5-sonnet") {
+        push_pricing_candidate(&mut candidates, "claude-sonnet-4-5-20250929");
+        push_pricing_candidate(&mut candidates, "claude-sonnet-4-20250514");
+    }
+    if lower.starts_with("claude-4-sonnet") {
+        push_pricing_candidate(&mut candidates, "claude-sonnet-4-20250514");
+    }
+    if lower.starts_with("claude-4-opus") {
+        push_pricing_candidate(&mut candidates, "claude-opus-4-20250514");
+    }
+    if lower.starts_with("claude-3-5-sonnet") || lower.starts_with("claude-3.5-sonnet") {
+        push_pricing_candidate(&mut candidates, "claude-3-5-sonnet-20241022");
+    }
+    if lower.starts_with("claude-3-5-haiku") || lower.starts_with("claude-3.5-haiku") {
+        push_pricing_candidate(&mut candidates, "claude-3-5-haiku-20241022");
+    }
+
+    // Gemini 系列
+    if lower.starts_with("gemini-3-pro") {
+        push_pricing_candidate(&mut candidates, "gemini-3-pro-preview");
+    }
+    if lower.starts_with("gemini-3-flash") {
+        push_pricing_candidate(&mut candidates, "gemini-3-flash-preview");
+    }
+    if lower.starts_with("gemini-2.5-pro") {
+        push_pricing_candidate(&mut candidates, "gemini-2.5-pro");
+    }
+    if lower.starts_with("gemini-2.5-flash") {
+        push_pricing_candidate(&mut candidates, "gemini-2.5-flash");
+    }
+
+    candidates
+}
+
 /// 计算成本
 fn calculate_cost(entry: &LocalLogEntry, pricing: Option<(Decimal, Decimal, Decimal, Decimal)>) -> Decimal {
     let Some((input_price, output_price, cache_read_price, cache_creation_price)) = pricing else {
@@ -2822,14 +3611,47 @@ fn calculate_cost(entry: &LocalLogEntry, pricing: Option<(Decimal, Decimal, Deci
     input_cost + output_cost + cache_read_cost + cache_creation_cost
 }
 
-/// 检查记录是否已存在
-fn record_exists(conn: &rusqlite::Connection, session_id: &str) -> bool {
-    conn.query_row(
-        "SELECT 1 FROM proxy_request_logs WHERE request_id = ?1",
-        [session_id],
-        |_| Ok(()),
-    )
-    .is_ok()
+/// 补齐缓存 token 后重算 Cursor 条目费用
+fn patch_cursor_costs_after_cache_fix(conn: &rusqlite::Connection) {
+    let Ok(mut stmt) = conn.prepare(
+        "SELECT request_id, model, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens
+         FROM proxy_request_logs
+         WHERE app_type = 'cursor_local' AND cache_read_tokens > 0 AND total_cost_usd = '0'"
+    ) else { return };
+
+    let Ok(rows) = stmt.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, u32>(2)?,
+            row.get::<_, u32>(3)?,
+            row.get::<_, u32>(4)?,
+            row.get::<_, u32>(5)?,
+        ))
+    }) else { return };
+
+    let entries: Vec<_> = rows.flatten().collect();
+    for (request_id, model, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens) in entries {
+        let entry = LocalLogEntry {
+            session_id: request_id.clone(),
+            source: "cursor".to_string(),
+            model: model.clone(),
+            input_tokens,
+            output_tokens,
+            cache_read_tokens,
+            cache_creation_tokens,
+            timestamp: 0,
+            project_name: None,
+            cost_usd: None,
+        };
+        let cost = resolve_entry_cost(conn, &entry);
+        if cost > Decimal::ZERO {
+            let _ = conn.execute(
+                "UPDATE proxy_request_logs SET total_cost_usd = ?1 WHERE request_id = ?2",
+                rusqlite::params![cost.to_string(), request_id],
+            );
+        }
+    }
 }
 
 /// 加载已存在的 request_id（按前缀过滤）
@@ -2858,6 +3680,41 @@ fn load_existing_request_ids_by_app_type(conn: &rusqlite::Connection, app_type: 
     set
 }
 
+fn load_existing_request_ids_for_source(
+    conn: &rusqlite::Connection,
+    source: &str,
+) -> HashSet<String> {
+    match source {
+        "cursor" => load_existing_request_ids_by_prefix(conn, "cursor-"),
+        _ => load_existing_request_ids_by_app_type(conn, &format!("{source}_local")),
+    }
+}
+
+fn build_local_stats_session_id(source: &str, file: &PathBuf) -> String {
+    match source {
+        "cursor" | "windsurf" | "kiro" | "antigravity" | "augment" | "trae" => {
+            format!("{}:{}", source, file.to_string_lossy().replace(['\\', '/', ':'], "_"))
+        }
+        _ => file
+            .file_stem()
+            .and_then(|name| name.to_str())
+            .map(|name| name.to_string())
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
+    }
+}
+
+fn delete_log_entries_by_request_id_prefix(
+    conn: &rusqlite::Connection,
+    prefix: &str,
+) -> Result<usize, AppError> {
+    let like_pattern = format!("{prefix}%");
+    conn.execute(
+        "DELETE FROM proxy_request_logs WHERE request_id LIKE ?1",
+        rusqlite::params![like_pattern],
+    )
+    .map_err(|e| AppError::Database(format!("按前缀删除日志条目失败: {e}")))
+}
+
 /// 插入日志条目到数据库
 fn insert_log_entry(conn: &rusqlite::Connection, entry: &LocalLogEntry, cost: Decimal) -> Result<(), AppError> {
     let app_type = format!("{}_local", entry.source);
@@ -2877,20 +3734,22 @@ fn insert_log_entry(conn: &rusqlite::Connection, entry: &LocalLogEntry, cost: De
     };
 
     let zero = Decimal::ZERO;
+    let project_name = entry.project_name.as_ref().map(|name| name.trim()).filter(|name| !name.is_empty());
     
     conn.execute(
         "INSERT INTO proxy_request_logs (
-            request_id, provider_id, provider_name, app_type, model,
+            request_id, provider_id, provider_name, app_type, model, project_name,
             input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens,
             input_cost_usd, output_cost_usd, cache_read_cost_usd, cache_creation_cost_usd, total_cost_usd,
             latency_ms, status_code, is_streaming, created_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
         rusqlite::params![
             entry.session_id,
             provider_id,
             provider_name,
             app_type,
             entry.model,
+            project_name,
             entry.input_tokens,
             entry.output_tokens,
             entry.cache_read_tokens,
@@ -2928,6 +3787,7 @@ fn update_log_entry(conn: &rusqlite::Connection, entry: &LocalLogEntry, cost: De
         "augment" => "Augment (Local)",
         _ => "Local Import",
     };
+    let project_name = entry.project_name.as_ref().map(|name| name.trim()).filter(|name| !name.is_empty());
 
     conn.execute(
         "UPDATE proxy_request_logs SET
@@ -2935,18 +3795,20 @@ fn update_log_entry(conn: &rusqlite::Connection, entry: &LocalLogEntry, cost: De
             provider_name = ?2,
             app_type = ?3,
             model = ?4,
-            input_tokens = ?5,
-            output_tokens = ?6,
-            cache_read_tokens = ?7,
-            cache_creation_tokens = ?8,
-            total_cost_usd = ?9,
-            created_at = ?10
-         WHERE request_id = ?11",
+            project_name = ?5,
+            input_tokens = ?6,
+            output_tokens = ?7,
+            cache_read_tokens = ?8,
+            cache_creation_tokens = ?9,
+            total_cost_usd = ?10,
+            created_at = ?11
+         WHERE request_id = ?12",
         rusqlite::params![
             provider_id,
             provider_name,
             app_type,
             entry.model,
+            project_name,
             entry.input_tokens,
             entry.output_tokens,
             entry.cache_read_tokens,
@@ -2959,6 +3821,15 @@ fn update_log_entry(conn: &rusqlite::Connection, entry: &LocalLogEntry, cost: De
     .map_err(|e| AppError::Database(format!("更新日志条目失败: {e}")))?;
 
     Ok(())
+}
+
+fn resolve_entry_cost(conn: &rusqlite::Connection, entry: &LocalLogEntry) -> Decimal {
+    let provider_id = format!("{}_local", entry.source);
+    let pricing = get_provider_model_pricing(conn, &provider_id, &entry.model);
+    entry
+        .cost_usd
+        .map(|c| Decimal::from_str(&c.to_string()).unwrap_or(Decimal::ZERO))
+        .unwrap_or_else(|| calculate_cost(entry, pricing))
 }
 
 /// 获取已导入的本地记录数
@@ -3602,9 +4473,7 @@ pub async fn scan_local_logs(
     window: tauri::Window,
     db: State<'_, Arc<Database>>,
 ) -> Result<ScanResult, String> {
-    let conn = db.conn.lock().map_err(|e| format!("获取数据库锁失败: {e}"))?;
-
-    let total_steps = 10;
+    let total_steps = 12;
     let mut step = 0u32;
 
     step += 1;
@@ -3647,7 +4516,18 @@ pub async fn scan_local_logs(
     emit_local_log_progress(&window, "scan", "augment", step, total_steps, "扫描 Augment");
     let (augment_files, augment_entries) = scan_augment_logs();
 
-    let existing_records = get_existing_local_records(&conn);
+    step += 1;
+    emit_local_log_progress(&window, "scan", "trae", step, total_steps, "扫描 Trae");
+    let (trae_files, trae_entries) = scan_trae_logs();
+
+    step += 1;
+    emit_local_log_progress(&window, "scan", "openclaw", step, total_steps, "扫描 OpenClaw");
+    let (openclaw_files, openclaw_entries) = scan_openclaw_logs();
+
+    let existing_records = {
+        let conn = db.conn.lock().map_err(|e| format!("获取数据库锁失败: {e}"))?;
+        get_existing_local_records(&conn)
+    };
 
     emit_local_log_progress(&window, "scan", "done", total_steps, total_steps, "扫描完成");
 
@@ -3682,6 +4562,27 @@ pub async fn scan_local_logs(
         augment_files: augment_files.len() as u32,
         augment_entries,
         augment_path: get_augment_log_path().map(|p| p.to_string_lossy().to_string()),
+        github_copilot_files: 0,
+        github_copilot_entries: 0,
+        github_copilot_path: None,
+        codebuddy_files: 0,
+        codebuddy_entries: 0,
+        codebuddy_path: None,
+        codebuddy_cn_files: 0,
+        codebuddy_cn_entries: 0,
+        codebuddy_cn_path: None,
+        qoder_files: 0,
+        qoder_entries: 0,
+        qoder_path: None,
+        trae_files: trae_files.len() as u32,
+        trae_entries,
+        trae_path: get_trae_log_path().map(|p| p.to_string_lossy().to_string()),
+        workbuddy_files: 0,
+        workbuddy_entries: 0,
+        workbuddy_path: None,
+        openclaw_files: openclaw_files.len() as u32,
+        openclaw_entries,
+        openclaw_path: get_openclaw_base_path().map(|p| p.to_string_lossy().to_string()),
         existing_records,
     })
 }
@@ -3735,17 +4636,17 @@ pub async fn import_local_logs(
                 
                 // 检查数据库中是否已存在
                 if existing_ids.contains(&entry.session_id) {
-                    skipped += 1;
+                    let cost = resolve_entry_cost(&conn, &entry);
+                    match update_log_entry(&conn, &entry, cost) {
+                        Ok(_) => imported += 1,
+                        Err(_) => failed += 1,
+                    }
                     continue;
                 }
                 existing_ids.insert(entry.session_id.clone());
                 
                 // 计算成本（优先使用服务商特定定价）
-                let provider_id = format!("{}_local", entry.source);
-                let pricing = get_provider_model_pricing(&conn, &provider_id, &entry.model);
-                let cost = entry.cost_usd
-                    .map(|c| Decimal::from_str(&c.to_string()).unwrap_or(Decimal::ZERO))
-                    .unwrap_or_else(|| calculate_cost(&entry, pricing));
+                let cost = resolve_entry_cost(&conn, &entry);
                 
                 // 插入数据库
                 match insert_log_entry(&conn, &entry, cost) {
@@ -3805,15 +4706,17 @@ pub async fn import_local_logs(
                 seen_ids.insert(entry.session_id.clone());
                 
                 if existing_ids.contains(&entry.session_id) {
-                    skipped += 1;
+                    let cost = resolve_entry_cost(&conn, &entry);
+                    match update_log_entry(&conn, &entry, cost) {
+                        Ok(_) => imported += 1,
+                        Err(_) => failed += 1,
+                    }
                     continue;
                 }
                 existing_ids.insert(entry.session_id.clone());
                 
                 // 计算成本（优先使用服务商特定定价）
-                let provider_id = format!("{}_local", entry.source);
-                let pricing = get_provider_model_pricing(&conn, &provider_id, &entry.model);
-                let cost = calculate_cost(&entry, pricing);
+                let cost = resolve_entry_cost(&conn, &entry);
                 
                 match insert_log_entry(&conn, &entry, cost) {
                     Ok(_) => imported += 1,
@@ -3875,15 +4778,17 @@ pub async fn import_local_logs(
                 seen_ids.insert(entry.session_id.clone());
                 
                 if existing_ids.contains(&entry.session_id) {
-                    skipped += 1;
+                    let cost = resolve_entry_cost(&conn, &entry);
+                    match update_log_entry(&conn, &entry, cost) {
+                        Ok(_) => imported += 1,
+                        Err(_) => failed += 1,
+                    }
                     continue;
                 }
                 existing_ids.insert(entry.session_id.clone());
                 
                 // 计算成本（优先使用服务商特定定价）
-                let provider_id = format!("{}_local", entry.source);
-                let pricing = get_provider_model_pricing(&conn, &provider_id, &entry.model);
-                let cost = calculate_cost(&entry, pricing);
+                let cost = resolve_entry_cost(&conn, &entry);
                 
                 match insert_log_entry(&conn, &entry, cost) {
                     Ok(_) => imported += 1,
@@ -3945,15 +4850,17 @@ pub async fn import_local_logs(
                 seen_ids.insert(entry.session_id.clone());
                 
                 if existing_ids.contains(&entry.session_id) {
-                    skipped += 1;
+                    let cost = resolve_entry_cost(&conn, &entry);
+                    match update_log_entry(&conn, &entry, cost) {
+                        Ok(_) => imported += 1,
+                        Err(_) => failed += 1,
+                    }
                     continue;
                 }
                 existing_ids.insert(entry.session_id.clone());
                 
                 // 计算成本（优先使用服务商特定定价）
-                let provider_id = format!("{}_local", entry.source);
-                let pricing = get_provider_model_pricing(&conn, &provider_id, &entry.model);
-                let cost = calculate_cost(&entry, pricing);
+                let cost = resolve_entry_cost(&conn, &entry);
                 
                 match insert_log_entry(&conn, &entry, cost) {
                     Ok(_) => imported += 1,
@@ -3991,34 +4898,39 @@ pub async fn import_local_logs(
     // 导入 Cursor 日志
     if sources.contains(&"cursor".to_string()) {
         source_index += 1;
-        let mut existing_cursor_ids = load_existing_request_ids_by_prefix(&conn, "cursor-");
         let (files, _) = scan_cursor_logs();
-        let total_files = files.len() as u32;
+        let total_units = files.len() as u32;
         emit_local_log_progress(
             &window,
             "import",
             "cursor",
             0,
-            total_files,
+            total_units,
             &format!("导入 Cursor ({}/{})", source_index, total_sources),
         );
         let _ = conn.execute_batch("BEGIN IMMEDIATE");
+        if let Err(err) = delete_log_entries_by_request_id_prefix(&conn, "cursor-official-") {
+            logger::log_warn(&format!(
+                "[Local Logs] 清理历史 Cursor 官方导入记录失败: {}",
+                err
+            ));
+        }
+
+        let mut existing_cursor_ids = load_existing_request_ids_by_prefix(&conn, "cursor-");
         for (idx, file) in files.iter().enumerate() {
             let entries = parse_cursor_db(file);
             for entry in entries {
                 total += 1;
-                
+
                 if seen_ids.contains(&entry.session_id) {
                     skipped += 1;
                     continue;
                 }
                 seen_ids.insert(entry.session_id.clone());
-                
+
                 if existing_cursor_ids.contains(&entry.session_id) {
                     // 已存在则更新（用于重新导入刷新统计）
-                    let provider_id = format!("{}_local", entry.source);
-                    let pricing = get_provider_model_pricing(&conn, &provider_id, &entry.model);
-                    let cost = calculate_cost(&entry, pricing);
+                    let cost = resolve_entry_cost(&conn, &entry);
                     match update_log_entry(&conn, &entry, cost) {
                         Ok(_) => imported += 1,
                         Err(_) => failed += 1,
@@ -4026,12 +4938,8 @@ pub async fn import_local_logs(
                     continue;
                 }
                 existing_cursor_ids.insert(entry.session_id.clone());
-                
-                // 计算成本（优先使用服务商特定定价）
-                let provider_id = format!("{}_local", entry.source);
-                let pricing = get_provider_model_pricing(&conn, &provider_id, &entry.model);
-                let cost = calculate_cost(&entry, pricing);
-                
+
+                let cost = resolve_entry_cost(&conn, &entry);
                 match insert_log_entry(&conn, &entry, cost) {
                     Ok(_) => imported += 1,
                     Err(_) => failed += 1,
@@ -4039,27 +4947,57 @@ pub async fn import_local_logs(
             }
 
             let file_index = idx as u32 + 1;
-            if total_files > 0 && (file_index == total_files || file_index % 5 == 0) {
+            if total_units > 0 && (file_index == total_units || file_index % 5 == 0) {
                 emit_local_log_progress(
                     &window,
                     "import",
                     "cursor",
                     file_index,
-                    total_files,
+                    total_units,
                     &format!("导入 Cursor ({}/{})", source_index, total_sources),
                 );
             }
-            
-            // 解析并保存会话统计信息
+        }
+
+        for file in &files {
             let stats = parse_cursor_session_stats(file);
             if stats.conversation_count > 0 || stats.tool_calls.values().sum::<u32>() > 0 {
-                let session_id = file
-                    .to_string_lossy()
-                    .replace(['\\', '/', ':'], "_");
+                let session_id = file.to_string_lossy().replace(['\\', '/', ':'], "_");
                 let provider_id = "cursor_local".to_string();
                 let _ = save_session_stats(&conn, &session_id, "cursor", Some(&provider_id), &stats);
             }
         }
+
+        // 补齐旧记录中缓存 token 为 0 的条目（Cursor 本地不存储缓存 token）
+        let patched = conn.execute(
+            "UPDATE proxy_request_logs
+             SET cache_read_tokens = CAST(input_tokens * 62.6 AS INTEGER)
+             WHERE app_type = 'cursor_local'
+               AND cache_read_tokens = 0
+               AND input_tokens > 0",
+            [],
+        ).unwrap_or(0);
+        if patched > 0 {
+            logger::log_info(&format!(
+                "[Local Logs] 已为 {} 条 Cursor 旧记录补齐缓存 Token 估算",
+                patched
+            ));
+        }
+
+        // 逗号分隔的模型名只取第一个
+        let _ = conn.execute(
+            "UPDATE proxy_request_logs
+             SET model = SUBSTR(model, 1, INSTR(model, ',') - 1)
+             WHERE app_type = 'cursor_local'
+               AND model LIKE '%,%'",
+            [],
+        );
+
+        // 重算费用：补齐缓存 token 后需要更新 total_cost_usd
+        if patched > 0 {
+            patch_cursor_costs_after_cache_fix(&conn);
+        }
+
         let _ = conn.execute_batch("COMMIT");
     }
     
@@ -4222,6 +5160,74 @@ pub async fn import_local_logs(
         let _ = conn.execute_batch("COMMIT");
     }
 
+    // 导入 Trae 日志
+    if sources.contains(&"trae".to_string()) {
+        source_index += 1;
+        let (files, _) = scan_trae_logs();
+        let total_files = files.len() as u32;
+        emit_local_log_progress(&window, "import", "trae", 0, total_files, &format!("导入 Trae ({}/{})", source_index, total_sources));
+        let mut existing_ids = load_existing_request_ids_by_app_type(&conn, "trae_local");
+        let _ = conn.execute_batch("BEGIN IMMEDIATE");
+        for (idx, file) in files.iter().enumerate() {
+            let entries = parse_vscode_app_db(file, "trae");
+            for entry in entries {
+                total += 1;
+                if seen_ids.contains(&entry.session_id) { skipped += 1; continue; }
+                seen_ids.insert(entry.session_id.clone());
+                if existing_ids.contains(&entry.session_id) { skipped += 1; continue; }
+                existing_ids.insert(entry.session_id.clone());
+                let provider_id = format!("{}_local", entry.source);
+                let pricing = get_provider_model_pricing(&conn, &provider_id, &entry.model);
+                let cost = calculate_cost(&entry, pricing);
+                match insert_log_entry(&conn, &entry, cost) {
+                    Ok(_) => imported += 1,
+                    Err(_) => failed += 1,
+                }
+            }
+            let file_index = idx as u32 + 1;
+            if total_files > 0 && (file_index == total_files || file_index % 5 == 0) {
+                emit_local_log_progress(&window, "import", "trae", file_index, total_files, &format!("导入 Trae ({}/{})", source_index, total_sources));
+            }
+        }
+        let _ = conn.execute_batch("COMMIT");
+    }
+
+    // 导入 OpenClaw 日志
+    if sources.contains(&"openclaw".to_string()) {
+        source_index += 1;
+        let (files, _) = scan_openclaw_logs();
+        let total_files = files.len() as u32;
+        emit_local_log_progress(&window, "import", "openclaw", 0, total_files, &format!("导入 OpenClaw ({}/{})", source_index, total_sources));
+        let mut existing_ids = load_existing_request_ids_by_app_type(&conn, "openclaw_local");
+        let _ = conn.execute_batch("BEGIN IMMEDIATE");
+        for (idx, file) in files.iter().enumerate() {
+            let entries = parse_openclaw_session_file(file);
+            for entry in entries {
+                total += 1;
+                if seen_ids.contains(&entry.session_id) { skipped += 1; continue; }
+                seen_ids.insert(entry.session_id.clone());
+                if existing_ids.contains(&entry.session_id) { skipped += 1; continue; }
+                existing_ids.insert(entry.session_id.clone());
+                let cost = entry.cost_usd
+                    .map(|c| Decimal::from_str(&c.to_string()).unwrap_or(Decimal::ZERO))
+                    .unwrap_or_else(|| {
+                        let provider_id = format!("{}_local", entry.source);
+                        let pricing = get_provider_model_pricing(&conn, &provider_id, &entry.model);
+                        calculate_cost(&entry, pricing)
+                    });
+                match insert_log_entry(&conn, &entry, cost) {
+                    Ok(_) => imported += 1,
+                    Err(_) => failed += 1,
+                }
+            }
+            let file_index = idx as u32 + 1;
+            if total_files > 0 && (file_index == total_files || file_index % 5 == 0) {
+                emit_local_log_progress(&window, "import", "openclaw", file_index, total_files, &format!("导入 OpenClaw ({}/{})", source_index, total_sources));
+            }
+        }
+        let _ = conn.execute_batch("COMMIT");
+    }
+
     emit_local_log_progress(&window, "import", "done", total_sources, total_sources, "导入完成");
 
     Ok(LocalLogImportResult {
@@ -4256,7 +5262,7 @@ pub async fn auto_import_local_logs(db: State<'_, Arc<Database>>) -> Result<u32,
     let mut seen_ids: HashSet<String> = HashSet::new();
     
     // 自动导入所有来源的日志
-    let sources = vec!["claude", "codex", "gemini", "opencode", "cursor", "windsurf", "kiro", "antigravity", "warp", "augment"];
+    let sources = vec!["claude", "codex", "gemini", "opencode", "cursor", "windsurf", "kiro", "antigravity", "warp", "augment", "trae", "openclaw"];
     
     for source in sources {
         let (files, _) = match source {
@@ -4270,8 +5276,21 @@ pub async fn auto_import_local_logs(db: State<'_, Arc<Database>>) -> Result<u32,
             "antigravity" => scan_antigravity_logs(),
             "warp" => scan_warp_logs(),
             "augment" => scan_augment_logs(),
+            "trae" => scan_trae_logs(),
+            "openclaw" => scan_openclaw_logs(),
             _ => continue,
         };
+
+        if source == "cursor" {
+            if let Err(err) = delete_log_entries_by_request_id_prefix(&conn, "cursor-official-") {
+                logger::log_warn(&format!(
+                    "[Local Logs] 清理历史 Cursor 官方导入记录失败: {}",
+                    err
+                ));
+            }
+        }
+
+        let mut existing_ids = load_existing_request_ids_for_source(&conn, source);
         
         for file in &files {
             let entries: Vec<LocalLogEntry> = match source {
@@ -4285,6 +5304,8 @@ pub async fn auto_import_local_logs(db: State<'_, Arc<Database>>) -> Result<u32,
                 "antigravity" => parse_vscode_app_db(file, "antigravity"),
                 "warp" => parse_warp_db(file),
                 "augment" => parse_vscode_app_db(file, "augment"),
+                "trae" => parse_vscode_app_db(file, "trae"),
+                "openclaw" => parse_openclaw_session_file(file),
                 _ => continue,
             };
             
@@ -4296,16 +5317,17 @@ pub async fn auto_import_local_logs(db: State<'_, Arc<Database>>) -> Result<u32,
                 seen_ids.insert(entry.session_id.clone());
                 
                 // 检查数据库中是否已存在
-                if record_exists(&conn, &entry.session_id) {
+                if existing_ids.contains(&entry.session_id) {
+                    let cost = resolve_entry_cost(&conn, &entry);
+                    if update_log_entry(&conn, &entry, cost).is_ok() {
+                        imported += 1;
+                    }
                     continue;
                 }
+                existing_ids.insert(entry.session_id.clone());
                 
                 // 计算成本（优先使用服务商特定定价）
-                let provider_id = format!("{}_local", entry.source);
-                let pricing = get_provider_model_pricing(&conn, &provider_id, &entry.model);
-                let cost = entry.cost_usd
-                    .map(|c| Decimal::from_str(&c.to_string()).unwrap_or(Decimal::ZERO))
-                    .unwrap_or_else(|| calculate_cost(&entry, pricing));
+                let cost = resolve_entry_cost(&conn, &entry);
                 
                 // 插入数据库
                 if insert_log_entry(&conn, &entry, cost).is_ok() {
@@ -4321,23 +5343,14 @@ pub async fn auto_import_local_logs(db: State<'_, Arc<Database>>) -> Result<u32,
                 "codex" => parse_codex_session_stats(file),
                 "gemini" => parse_gemini_session_stats(file),
                 "opencode" => parse_opencode_session_stats(file),
-                "cursor" | "windsurf" | "kiro" | "antigravity" | "augment" => parse_cursor_session_stats(file),
-                // Warp 暂无会话统计解析
+                "cursor" | "windsurf" | "kiro" | "antigravity" | "augment" | "trae" => parse_cursor_session_stats(file),
+                "openclaw" => parse_openclaw_session_stats(file),
                 _ => continue,
             };
             
             // 只有有数据时才保存
             if stats.conversation_count > 0 || stats.tool_calls.values().sum::<u32>() > 0 {
-                let session_id = if matches!(source, "cursor" | "windsurf" | "kiro" | "antigravity" | "augment") {
-                    // VSCode 系工具使用时间戳作为会话 ID
-                    format!("{}-{}", source, chrono::Utc::now().timestamp())
-                } else {
-                    file
-                        .file_stem()
-                        .and_then(|n| n.to_str())
-                        .map(|s| s.to_string())
-                        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string())
-                };
+                let session_id = build_local_stats_session_id(source, file);
                 let provider_id = format!("{}_local", source);
                 let _ = save_session_stats(&conn, &session_id, source, Some(&provider_id), &stats);
             }

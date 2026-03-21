@@ -1,4 +1,4 @@
-﻿// oh-my-opencode 配置和安装管理模块
+// oh-my-opencode 配置和安装管理模块
 // 支持一键安装 Bun 和 oh-my-opencode，以及配置 7 个 Agent 的模型
 
 use serde::{Deserialize, Serialize};
@@ -311,7 +311,7 @@ fn is_newer_version(current: &str, latest: &str) -> bool {
 }
 
 /// 获取 oh-my-opencode 版本信息
-fn get_ohmy_version_info() -> Option<OhMyVersionInfo> {
+fn resolve_ohmy_version_info() -> Option<OhMyVersionInfo> {
     let current_version = get_installed_ohmy_version();
     let latest_version = get_latest_ohmy_version();
     
@@ -335,7 +335,6 @@ pub async fn check_ohmy_status() -> Result<OhMyStatus, String> {
     let npm_installed = check_npm_installed();
     let ohmy_installed = check_ohmy_installed();
     let config = if ohmy_installed { read_ohmy_config() } else { None };
-    let version_info = get_ohmy_version_info();
     
     Ok(OhMyStatus {
         bun_installed,
@@ -343,8 +342,13 @@ pub async fn check_ohmy_status() -> Result<OhMyStatus, String> {
         npm_installed,
         ohmy_installed,
         config,
-        version_info,
+        version_info: None,
     })
+}
+
+#[tauri::command]
+pub async fn get_ohmy_version_info() -> Result<Option<OhMyVersionInfo>, String> {
+    Ok(resolve_ohmy_version_info())
 }
 
 /// 获取 OpenCode 内置的免费模型列表

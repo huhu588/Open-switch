@@ -102,7 +102,7 @@ export function WarpAccountsPage() {
       )}
 
       {activeTab === 'providers' && (
-        <PlatformProviderPanel platformModelType="warp" />
+        <PlatformProviderPanel modelType="warp" />
       )}
     </div>
   );

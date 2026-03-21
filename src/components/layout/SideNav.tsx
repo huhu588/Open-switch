@@ -1,4 +1,4 @@
-import { Settings, Rocket, GaugeCircle, LayoutGrid, SlidersHorizontal, Plug, BarChart3, FolderArchive, Terminal, Sparkles, Activity, Wand2, MessageSquare } from 'lucide-react';
+import { Settings, Rocket, GaugeCircle, LayoutGrid, SlidersHorizontal, Plug, BarChart3, FolderArchive, Terminal, Sparkles, Activity, Wand2, MessageSquare, Zap } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { Page } from '../../types/navigation';
@@ -477,6 +477,14 @@ export function SideNav({
           >
             <Terminal size={20} />
             <span className="tooltip">{t('nav.devenv', '开发环境')}</span>
+          </button>
+          <button
+            className={`nav-item ${page === 'cursor-welfare' ? 'active' : ''}`}
+            onClick={() => setPage('cursor-welfare')}
+            title={t('nav.cursorWelfare', 'Cursor 福利')}
+          >
+            <Zap size={20} />
+            <span className="tooltip">{t('nav.cursorWelfare', 'Cursor 福利')}</span>
           </button>
           <button
             className={`nav-item ${page === 'tool-status' ? 'active' : ''}`}

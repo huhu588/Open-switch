@@ -1,4 +1,4 @@
-﻿// 编程环境管理模块
+// 编程环境管理模块
 // 支持检测、切换、安装全球前10编程语言环境
 // Node.js / Python / Rust / Go / Java / C/C++ / C#(.NET) / PHP / Kotlin / Swift
 
@@ -535,6 +535,7 @@ fn extract_version(raw: &str) -> String {
 }
 
 /// 解析 nvm list 输出为版本列表（Windows nvm-windows 格式）
+#[cfg(not(target_os = "windows"))]
 fn parse_nvm_list(output: &str) -> Vec<String> {
     let mut versions = Vec::new();
     for line in output.lines() {
@@ -572,22 +573,99 @@ fn parse_rustup_toolchains(output: &str) -> Vec<String> {
     toolchains
 }
 
+#[cfg(target_os = "windows")]
+fn compare_dot_versions(a: &str, b: &str) -> std::cmp::Ordering {
+    let a_parts: Vec<u32> = a
+        .split('.')
+        .map(|part| part.parse::<u32>().unwrap_or(0))
+        .collect();
+    let b_parts: Vec<u32> = b
+        .split('.')
+        .map(|part| part.parse::<u32>().unwrap_or(0))
+        .collect();
+
+    for idx in 0..a_parts.len().max(b_parts.len()) {
+        match a_parts
+            .get(idx)
+            .copied()
+            .unwrap_or(0)
+            .cmp(&b_parts.get(idx).copied().unwrap_or(0))
+        {
+            std::cmp::Ordering::Equal => continue,
+            ordering => return ordering,
+        }
+    }
+
+    a.cmp(b)
+}
+
+#[cfg(target_os = "windows")]
+fn find_windows_nvm_home() -> Option<String> {
+    let nvm_home = std::env::var("NVM_HOME").unwrap_or_default();
+    let appdata_nvm = format!("{}\\nvm", std::env::var("APPDATA").unwrap_or_default());
+
+    for dir in [nvm_home, appdata_nvm] {
+        if dir.is_empty() {
+            continue;
+        }
+
+        let nvm_exe = format!("{}\\nvm.exe", dir);
+        if std::path::Path::new(&nvm_exe).exists() {
+            return Some(dir);
+        }
+    }
+
+    None
+}
+
+#[cfg(target_os = "windows")]
+fn list_windows_nvm_versions(nvm_home: &str, current_node_version: Option<&str>) -> Vec<String> {
+    let mut versions: Vec<String> = std::fs::read_dir(nvm_home)
+        .ok()
+        .into_iter()
+        .flat_map(|entries| entries.flatten())
+        .filter_map(|entry| {
+            if !entry.path().is_dir() {
+                return None;
+            }
+
+            let dir_name = entry.file_name().to_string_lossy().trim().to_string();
+            let version = dir_name.trim_start_matches('v').trim();
+            let first_char = version.chars().next()?;
+            if !first_char.is_ascii_digit() {
+                return None;
+            }
+
+            Some(version.to_string())
+        })
+        .collect();
+
+    if let Some(current) = current_node_version {
+        if !current.is_empty() && !versions.iter().any(|version| version == current) {
+            versions.push(current.to_string());
+        }
+    }
+
+    versions.sort_by(|a, b| compare_dot_versions(b, a));
+    versions.dedup();
+    versions
+}
+
 /// 检测 Node.js 环境
 fn detect_nodejs() -> DevEnvInfo {
-    // Windows 下检查 nvm-windows 已知路径
     #[cfg(target_os = "windows")]
-    {
-        let nvm_home = std::env::var("NVM_HOME").unwrap_or_default();
-        let appdata_nvm = format!("{}\\nvm", std::env::var("APPDATA").unwrap_or_default());
-        for dir in &[&nvm_home, &appdata_nvm] {
-            if !dir.is_empty() && std::path::Path::new(&format!("{}\\nvm.exe", dir)).exists() {
-                ensure_dir_in_path(dir);
-                // 同时确保 NVM_SYMLINK 在 PATH 中
-                let symlink = std::env::var("NVM_SYMLINK").unwrap_or_else(|_| "C:\\Program Files\\nodejs".to_string());
-                ensure_dir_in_path(&symlink);
-                break;
-            }
-        }
+    let windows_nvm_home = find_windows_nvm_home();
+
+    #[cfg(not(target_os = "windows"))]
+    let windows_nvm_home: Option<String> = None;
+
+    // Windows 下预先补齐 nvm 与 nodejs 软链接路径，避免 node 命令检测失败。
+    #[cfg(target_os = "windows")]
+    if let Some(nvm_home) = windows_nvm_home.as_deref() {
+        ensure_dir_in_path(nvm_home);
+        let symlink =
+            std::env::var("NVM_SYMLINK").unwrap_or_else(|_| "C:\\Program Files\\nodejs".to_string());
+        ensure_dir_in_path(&symlink);
     }
 
     // 检测 Node.js
@@ -595,20 +673,35 @@ fn detect_nodejs() -> DevEnvInfo {
         .map(|v| extract_version(&v));
     let installed = node_version.is_some();
 
-    // 检测 NVM（Windows: nvm-windows）
-    let nvm_version = run_cmd("nvm", &["version"])
-        .or_else(|| run_cmd("nvm", &["--version"]))
-        .map(|v| extract_version(&v));
-    let nvm_installed = nvm_version.is_some();
+    let (nvm_installed, nvm_version, installed_versions) = {
+        #[cfg(target_os = "windows")]
+        {
+            let installed_versions = if let Some(nvm_home) = windows_nvm_home.as_deref() {
+                // nvm-windows 在 GUI 进程中执行时可能弹出 TerminalOnly，对检测阶段改为目录扫描。
+                list_windows_nvm_versions(nvm_home, node_version.as_deref())
+            } else {
+                node_version.clone().into_iter().collect()
+            };
 
-    // 获取已安装的 Node.js 版本列表
-    let installed_versions = if nvm_installed {
-        run_cmd("nvm", &["list"])
-            .map(|out| parse_nvm_list(&out))
-            .unwrap_or_default()
-    } else {
-        // 没有 nvm 时，只有当前版本
-        node_version.clone().into_iter().collect()
+            (windows_nvm_home.is_some(), None, installed_versions)
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            let nvm_version = run_cmd("nvm", &["version"])
+                .or_else(|| run_cmd("nvm", &["--version"]))
+                .map(|v| extract_version(&v));
+            let nvm_installed = nvm_version.is_some();
+            let installed_versions = if nvm_installed {
+                run_cmd("nvm", &["list"])
+                    .map(|out| parse_nvm_list(&out))
+                    .unwrap_or_default()
+            } else {
+                node_version.clone().into_iter().collect()
+            };
+
+            (nvm_installed, nvm_version, installed_versions)
+        }
     };
 
     DevEnvInfo {
@@ -1111,9 +1204,26 @@ pub async fn get_installed_versions(env_name: String) -> Result<Vec<String>, Str
     let versions = tokio::task::spawn_blocking(move || -> Result<Vec<String>, String> {
         match env_name.as_str() {
             "nodejs" => {
-                run_cmd("nvm", &["list"])
-                    .map(|out| parse_nvm_list(&out))
-                    .ok_or_else(|| "无法获取 Node.js 版本列表，请确认 nvm 已安装".to_string())
+                #[cfg(target_os = "windows")]
+                {
+                    if let Some(nvm_home) = find_windows_nvm_home() {
+                        let versions = list_windows_nvm_versions(&nvm_home, None);
+                        if !versions.is_empty() {
+                            return Ok(versions);
+                        }
+                    }
+
+                    run_cmd("node", &["--version"])
+                        .map(|v| vec![extract_version(&v)])
+                        .ok_or_else(|| "无法获取 Node.js 版本列表，请确认 nvm 或 Node.js 已安装".to_string())
+                }
+
+                #[cfg(not(target_os = "windows"))]
+                {
+                    run_cmd("nvm", &["list"])
+                        .map(|out| parse_nvm_list(&out))
+                        .ok_or_else(|| "无法获取 Node.js 版本列表，请确认 nvm 已安装".to_string())
+                }
             }
             "python" => {
                 run_cmd("pyenv", &["versions", "--bare"])

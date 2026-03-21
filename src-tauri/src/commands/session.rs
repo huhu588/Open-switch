@@ -1,8 +1,8 @@
 use crate::modules::session_manager::{SessionInfo, SessionManager, SessionMessage};
 
 #[tauri::command]
-pub fn list_sessions(platform: Option<String>) -> Vec<SessionInfo> {
-    SessionManager::list_sessions(platform)
+pub fn list_sessions(platform: Option<String>, force_refresh: Option<bool>) -> Vec<SessionInfo> {
+    SessionManager::list_sessions(platform, force_refresh.unwrap_or(false))
 }
 
 #[tauri::command]
@@ -14,8 +14,12 @@ pub fn get_session_messages(
 }
 
 #[tauri::command]
-pub fn search_sessions(query: String, platform: Option<String>) -> Vec<SessionInfo> {
-    SessionManager::search_sessions(&query, platform)
+pub fn search_sessions(
+    query: String,
+    platform: Option<String>,
+    force_refresh: Option<bool>,
+) -> Vec<SessionInfo> {
+    SessionManager::search_sessions(&query, platform, force_refresh.unwrap_or(false))
 }
 
 #[tauri::command]

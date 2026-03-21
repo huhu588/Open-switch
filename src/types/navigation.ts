@@ -33,4 +33,5 @@ export type Page =
   | 'devenv'
   | 'ohmy'
   | 'tool-status'
-  | 'sessions';
+  | 'sessions'
+  | 'cursor-welfare';

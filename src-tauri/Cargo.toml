@@ -109,6 +109,7 @@ aes = "0.8"
 cbc = "0.1"
 pbkdf2 = "0.12"
 sha1 = "0.10"
+csv = "1.4.0"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.58", features = ["Win32_Foundation", "Win32_Security_Cryptography"] }

@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use chrono::DateTime;
 use serde_json::Value;
@@ -28,43 +29,41 @@ pub struct SessionMessage {
     pub timestamp: Option<i64>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SessionCachePayload {
+    version: u32,
+    generated_at_ms: i64,
+    sessions: Vec<SessionInfo>,
+}
+
 pub struct SessionManager;
 
 impl SessionManager {
-    pub fn list_sessions(platform: Option<String>) -> Vec<SessionInfo> {
-        type Scanner = fn() -> Vec<SessionInfo>;
-        let all_scanners: Vec<(&str, Scanner)> = vec![
-            ("claude-code", scan_claude_sessions as Scanner),
-            ("codex", scan_codex_sessions as Scanner),
-            ("gemini", scan_gemini_sessions as Scanner),
-            ("opencode", scan_opencode_sessions as Scanner),
-            ("openclaw", scan_openclaw_sessions as Scanner),
-            ("cursor", scan_cursor_sessions as Scanner),
-            ("windsurf", scan_windsurf_sessions as Scanner),
-            ("kiro", scan_kiro_sessions as Scanner),
-            ("antigravity", scan_antigravity_sessions as Scanner),
-            ("codebuddy", scan_codebuddy_sessions as Scanner),
-            ("codebuddy_cn", scan_codebuddy_cn_sessions as Scanner),
-            ("qoder", scan_qoder_sessions as Scanner),
-            ("trae", scan_trae_sessions as Scanner),
-            ("workbuddy", scan_workbuddy_sessions as Scanner),
-            ("github-copilot", scan_github_copilot_sessions as Scanner),
-            ("warp", scan_warp_sessions as Scanner),
-            ("augment", scan_augment_sessions as Scanner),
-        ];
+    pub fn list_sessions(platform: Option<String>, force_refresh: bool) -> Vec<SessionInfo> {
+        if !force_refresh {
+            if let Some(cache) = read_session_cache() {
+                if session_cache_is_stale(cache.generated_at_ms) {
+                    let platform_for_refresh = platform.clone();
+                    std::thread::spawn(move || {
+                        let fresh = scan_sessions(platform_for_refresh.as_deref());
+                        if let Some(platform_name) = platform_for_refresh.as_deref() {
+                            merge_platform_sessions_into_cache(platform_name, &fresh);
+                        } else {
+                            write_session_cache(&fresh);
+                        }
+                    });
+                }
+                return filter_sessions_by_platform(cache.sessions, platform.as_deref());
+            }
+        }
 
-        let scanners: Vec<(&str, Scanner)> = match platform.as_deref() {
-            Some(p) => all_scanners.into_iter().filter(|(name, _)| *name == p).collect(),
-            None => all_scanners,
-        };
-
-        let mut all_sessions: Vec<SessionInfo> = scanners
-            .into_iter()
-            .flat_map(|(_, scanner)| scanner())
-            .collect();
-
-        all_sessions.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
-        all_sessions
+        let fresh = scan_sessions(platform.as_deref());
+        if let Some(platform_name) = platform.as_deref() {
+            merge_platform_sessions_into_cache(platform_name, &fresh);
+        } else {
+            write_session_cache(&fresh);
+        }
+        fresh
     }
 
     pub fn load_messages(platform: &str, source_path: &str) -> Result<Vec<SessionMessage>, String> {
@@ -89,8 +88,8 @@ impl SessionManager {
         }
     }
 
-    pub fn search_sessions(query: &str, platform: Option<String>) -> Vec<SessionInfo> {
-        let all = Self::list_sessions(platform);
+    pub fn search_sessions(query: &str, platform: Option<String>, force_refresh: bool) -> Vec<SessionInfo> {
+        let all = Self::list_sessions(platform, force_refresh);
         if query.is_empty() {
             return all;
         }
@@ -108,7 +107,7 @@ impl SessionManager {
     }
 
     pub fn delete_session(platform: &str, session_id: &str, source_path: &str) -> Result<bool, String> {
-        match platform {
+        let deleted = match platform {
             "claude-code" => delete_claude_session(session_id, source_path),
             "codex" => delete_codex_session(source_path),
             "gemini" => delete_gemini_session(source_path),
@@ -119,8 +118,117 @@ impl SessionManager {
             | "github-copilot" | "augment" => delete_vscode_session(session_id, source_path),
             "warp" => delete_warp_session(session_id),
             _ => Err(format!("不支持的平台: {}", platform)),
+        }?;
+
+        if deleted {
+            remove_session_from_cache(platform, session_id, source_path);
         }
+
+        Ok(deleted)
     }
+}
+
+const SESSION_CACHE_VERSION: u32 = 1;
+const SESSION_CACHE_REFRESH_MS: i64 = 5 * 60 * 1000;
+
+fn current_timestamp_ms() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+fn session_cache_is_stale(generated_at_ms: i64) -> bool {
+    current_timestamp_ms().saturating_sub(generated_at_ms) > SESSION_CACHE_REFRESH_MS
+}
+
+fn get_session_cache_path() -> Option<PathBuf> {
+    let home = dirs::home_dir()?;
+    let dir = home.join(".config").join("opencode");
+    fs::create_dir_all(&dir).ok()?;
+    Some(dir.join("session_cache.json"))
+}
+
+fn read_session_cache() -> Option<SessionCachePayload> {
+    let cache_path = get_session_cache_path()?;
+    let content = fs::read_to_string(cache_path).ok()?;
+    let payload: SessionCachePayload = serde_json::from_str(&content).ok()?;
+    (payload.version == SESSION_CACHE_VERSION).then_some(payload)
+}
+
+fn write_session_cache(sessions: &[SessionInfo]) {
+    let Some(cache_path) = get_session_cache_path() else { return };
+    let payload = SessionCachePayload {
+        version: SESSION_CACHE_VERSION,
+        generated_at_ms: current_timestamp_ms(),
+        sessions: sessions.to_vec(),
+    };
+    let Ok(content) = serde_json::to_string(&payload) else { return };
+    let _ = fs::write(cache_path, content);
+}
+
+fn merge_platform_sessions_into_cache(platform: &str, fresh_sessions: &[SessionInfo]) {
+    let Some(mut cache) = read_session_cache() else { return };
+    cache.sessions.retain(|session| session.platform != platform);
+    cache.sessions.extend(fresh_sessions.iter().cloned());
+    cache.sessions.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    cache.generated_at_ms = current_timestamp_ms();
+    write_session_cache(&cache.sessions);
+}
+
+fn remove_session_from_cache(platform: &str, session_id: &str, source_path: &str) {
+    let Some(mut cache) = read_session_cache() else { return };
+    cache.sessions.retain(|session| {
+        !(session.platform == platform && session.id == session_id && session.file_path == source_path)
+    });
+    cache.generated_at_ms = current_timestamp_ms();
+    write_session_cache(&cache.sessions);
+}
+
+fn filter_sessions_by_platform(mut sessions: Vec<SessionInfo>, platform: Option<&str>) -> Vec<SessionInfo> {
+    if let Some(platform_name) = platform {
+        sessions.retain(|session| session.platform == platform_name);
+    }
+    sessions
+}
+
+fn scan_sessions(platform: Option<&str>) -> Vec<SessionInfo> {
+    type Scanner = fn() -> Vec<SessionInfo>;
+    let all_scanners: Vec<(&str, Scanner)> = vec![
+        ("claude-code", scan_claude_sessions as Scanner),
+        ("codex", scan_codex_sessions as Scanner),
+        ("gemini", scan_gemini_sessions as Scanner),
+        ("opencode", scan_opencode_sessions as Scanner),
+        ("openclaw", scan_openclaw_sessions as Scanner),
+        ("cursor", scan_cursor_sessions as Scanner),
+        ("windsurf", scan_windsurf_sessions as Scanner),
+        ("kiro", scan_kiro_sessions as Scanner),
+        ("antigravity", scan_antigravity_sessions as Scanner),
+        ("codebuddy", scan_codebuddy_sessions as Scanner),
+        ("codebuddy_cn", scan_codebuddy_cn_sessions as Scanner),
+        ("qoder", scan_qoder_sessions as Scanner),
+        ("trae", scan_trae_sessions as Scanner),
+        ("workbuddy", scan_workbuddy_sessions as Scanner),
+        ("github-copilot", scan_github_copilot_sessions as Scanner),
+        ("warp", scan_warp_sessions as Scanner),
+        ("augment", scan_augment_sessions as Scanner),
+    ];
+
+    let scanners: Vec<(&str, Scanner)> = match platform {
+        Some(platform_name) => all_scanners
+            .into_iter()
+            .filter(|(name, _)| *name == platform_name)
+            .collect(),
+        None => all_scanners,
+    };
+
+    let mut sessions: Vec<SessionInfo> = scanners
+        .into_iter()
+        .flat_map(|(_, scanner)| scanner())
+        .collect();
+
+    sessions.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    sessions
 }
 
 // ──────────────────────────────────────────────
@@ -1225,6 +1333,113 @@ fn vscode_parse_json_bytes(bytes: &[u8]) -> Option<Value> {
     None
 }
 
+fn vscode_stringify_tool_former_value(value: &Value) -> Option<String> {
+    match value {
+        Value::Null => None,
+        Value::String(s) => {
+            let trimmed = s.trim();
+            if trimmed.is_empty() {
+                return None;
+            }
+            if let Ok(parsed) = serde_json::from_str::<Value>(trimmed) {
+                return vscode_stringify_tool_former_value(&parsed).or_else(|| Some(trimmed.to_string()));
+            }
+            Some(trimmed.to_string())
+        }
+        Value::Object(_) | Value::Array(_) => serde_json::to_string(value).ok().filter(|s| !s.is_empty()),
+        _ => Some(value.to_string()),
+    }
+}
+
+fn vscode_extract_tool_former_content(msg: &Value) -> Option<String> {
+    let tool = msg.get("toolFormerData")?;
+    let name = tool.get("name")
+        .or_else(|| tool.get("toolName"))
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .unwrap_or("unknown_tool");
+    let status = tool.get("status")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty());
+    let params = tool.get("params").and_then(vscode_stringify_tool_former_value);
+    let result = tool.get("result")
+        .or_else(|| tool.get("output"))
+        .or_else(|| tool.get("response"))
+        .and_then(vscode_stringify_tool_former_value);
+
+    let mut lines = vec![match status {
+        Some(status) => format!("[工具调用] {} ({})", name, status),
+        None => format!("[工具调用] {}", name),
+    }];
+    if let Some(params) = params {
+        lines.push(format!("参数: {}", params));
+    }
+    if let Some(result) = result {
+        lines.push(format!("结果: {}", result));
+    }
+    Some(lines.join("\n"))
+}
+
+fn vscode_extract_rich_text_content(value: &Value) -> Option<String> {
+    match value {
+        Value::Null => None,
+        Value::String(s) => {
+            let trimmed = s.trim();
+            if trimmed.is_empty() {
+                return None;
+            }
+            if trimmed.starts_with('{') || trimmed.starts_with('[') {
+                if let Ok(parsed) = serde_json::from_str::<Value>(trimmed) {
+                    return vscode_extract_rich_text_content(&parsed).or_else(|| Some(trimmed.to_string()));
+                }
+            }
+            Some(trimmed.to_string())
+        }
+        Value::Array(arr) => {
+            let parts: Vec<String> = arr.iter()
+                .filter_map(vscode_extract_rich_text_content)
+                .filter(|s| !s.is_empty())
+                .collect();
+            if parts.is_empty() { None } else { Some(parts.join("")) }
+        }
+        Value::Object(obj) => {
+            if let Some(text) = obj.get("text").and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
+                return Some(text.to_string());
+            }
+            let mut parts = Vec::new();
+            for key in ["children", "root", "content", "value"] {
+                if let Some(val) = obj.get(key).and_then(vscode_extract_rich_text_content) {
+                    if !val.is_empty() {
+                        parts.push(val);
+                    }
+                }
+            }
+            if parts.is_empty() { None } else { Some(parts.join("")) }
+        }
+        _ => None,
+    }
+}
+
+fn normalize_session_timestamp_ms(ts: i64) -> i64 {
+    if ts.abs() < 10_000_000_000 { ts.saturating_mul(1000) } else { ts }
+}
+
+fn vscode_extract_timestamp_ms(msg: &Value) -> Option<i64> {
+    msg.get("timestamp").or_else(|| msg.get("createdAt")).or_else(|| msg.get("created_at")).and_then(|v| {
+        if let Some(ts) = v.as_i64() {
+            Some(normalize_session_timestamp_ms(ts))
+        } else if let Some(ts) = v.as_f64() {
+            Some(normalize_session_timestamp_ms(ts as i64))
+        } else if let Some(ts) = v.as_str() {
+            ts.parse::<i64>().ok()
+                .map(normalize_session_timestamp_ms)
+                .or_else(|| DateTime::parse_from_rfc3339(ts).ok().map(|dt| dt.timestamp_millis()))
+        } else {
+            None
+        }
+    })
+}
+
 fn vscode_extract_content(msg: &Value) -> Option<String> {
     for field in &["rawText", "text", "content", "message", "value", "displayText", "markdownContent"] {
         if let Some(val) = msg.get(*field) {
@@ -1242,13 +1457,8 @@ fn vscode_extract_content(msg: &Value) -> Option<String> {
         }
     }
     if let Some(rich) = msg.get("richText").or_else(|| msg.get("richtext")) {
-        if let Some(s) = rich.as_str() { if !s.is_empty() { return Some(s.to_string()); } }
-        if let Some(arr) = rich.as_array() {
-            let parts: Vec<String> = arr.iter().filter_map(|p| {
-                if let Some(s) = p.as_str() { Some(s.to_string()) }
-                else { p.get("text").or_else(|| p.get("value")).and_then(|t| t.as_str()).map(|s| s.to_string()) }
-            }).collect();
-            if !parts.is_empty() { return Some(parts.join("")); }
+        if let Some(text) = vscode_extract_rich_text_content(rich) {
+            if !text.is_empty() { return Some(text); }
         }
     }
     for field in &["codeBlocks", "suggestedCodeBlocks"] {
@@ -1258,6 +1468,17 @@ fn vscode_extract_content(msg: &Value) -> Option<String> {
             }).collect();
             if !parts.is_empty() { return Some(parts.join("\n\n")); }
         }
+    }
+    for field in &["thinking", "reasoning"] {
+        if let Some(text) = msg.get(*field)
+            .and_then(|v| v.get("text").or_else(|| v.get("content")).or_else(|| v.get("value")))
+            .and_then(vscode_extract_rich_text_content)
+        {
+            if !text.is_empty() { return Some(text); }
+        }
+    }
+    if let Some(tool_summary) = vscode_extract_tool_former_content(msg) {
+        return Some(tool_summary);
     }
     if let Some(obj) = msg.as_object() {
         let skip = ["type","role","sender","isUser","model","modelId","modelName",
@@ -1274,6 +1495,63 @@ fn vscode_extract_content(msg: &Value) -> Option<String> {
         if best.is_some() { return best; }
     }
     None
+}
+
+fn vscode_build_session_message(msg: &Value) -> Option<SessionMessage> {
+    let role = vscode_determine_role(msg).unwrap_or_else(|| "assistant".to_string());
+    let content = vscode_extract_content(msg)?;
+    if content.is_empty() {
+        return None;
+    }
+    Some(SessionMessage {
+        role,
+        content,
+        timestamp: vscode_extract_timestamp_ms(msg),
+    })
+}
+
+fn vscode_load_bubble_messages(
+    conn: &rusqlite::Connection,
+    session_id: &str,
+    ordered_bubble_ids: Option<&[String]>,
+) -> Vec<SessionMessage> {
+    if !vscode_table_exists(conn, "cursorDiskKV") {
+        return Vec::new();
+    }
+
+    if let Some(bubble_ids) = ordered_bubble_ids {
+        let mut messages = Vec::new();
+        for bubble_id in bubble_ids {
+            let key = format!("bubbleId:{}:{}", session_id, bubble_id);
+            let Ok(value) = conn.query_row("SELECT value FROM cursorDiskKV WHERE key = ?1", [&key], |row| {
+                row.get::<_, Vec<u8>>(0).or_else(|_| row.get::<_, String>(0).map(|s| s.into_bytes()))
+            }) else {
+                continue;
+            };
+            let Some(json) = vscode_parse_json_bytes(&value) else { continue };
+            if let Some(message) = vscode_build_session_message(&json) {
+                messages.push(message);
+            }
+        }
+        return messages;
+    }
+
+    let key_pattern = format!("bubbleId:{}:%", session_id);
+    let mut entries: Vec<(i64, usize, SessionMessage)> = Vec::new();
+    if let Ok(mut stmt) = conn.prepare("SELECT value FROM cursorDiskKV WHERE key LIKE ?1") {
+        if let Ok(rows) = stmt.query_map([&key_pattern], |row| {
+            row.get::<_, Vec<u8>>(0).ok().or_else(|| row.get::<_, String>(0).ok().map(|s| s.into_bytes())).ok_or(rusqlite::Error::QueryReturnedNoRows)
+        }) {
+            for (idx, row_result) in rows.enumerate() {
+                let Ok(vb) = row_result else { continue };
+                let Some(json) = vscode_parse_json_bytes(&vb) else { continue };
+                let Some(message) = vscode_build_session_message(&json) else { continue };
+                entries.push((message.timestamp.unwrap_or(i64::MAX), idx, message));
+            }
+        }
+    }
+    entries.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
+    entries.into_iter().map(|(_, _, msg)| msg).collect()
 }
 
 fn vscode_determine_role(msg: &Value) -> Option<String> {
@@ -1343,7 +1621,6 @@ fn scan_vscode_sessions(app_names: &[&str], platform_name: &str) -> Vec<SessionI
                         let composer_id = json.get("composerId").and_then(|v| v.as_str()).map(|s| s.to_string())
                             .unwrap_or_else(|| key.strip_prefix("composerData:").unwrap_or(&key).to_string());
                         if seen_ids.contains(&composer_id) { continue; }
-                        seen_ids.insert(composer_id.clone());
 
                         let title = vscode_get_str_field(&json, &["name", "title"]);
                         let created_at = json.get("createdAt").or_else(|| json.get("created_at")).and_then(|v| v.as_i64());
@@ -1363,6 +1640,7 @@ fn scan_vscode_sessions(app_names: &[&str], platform_name: &str) -> Vec<SessionI
                         }
 
                         if msg_count > 0 {
+                            seen_ids.insert(composer_id.clone());
                             inline_ids.insert(composer_id.clone());
                             sessions.push(SessionInfo {
                                 id: composer_id.clone(),
@@ -1685,7 +1963,8 @@ fn vscode_extract_prompt_role(item: &Value) -> String {
 
 /// 从 VSCode 系平台加载会话消息 — file_path 格式: "type:session_id"，根据 platform 动态查找 db
 fn load_vscode_messages(platform: &str, source_path: &str) -> Result<Vec<SessionMessage>, String> {
-    let (data_type, rest) = source_path.split_once(':')
+    let normalized_source_path = normalize_vscode_source_path(source_path);
+    let (data_type, rest) = normalized_source_path.split_once(':')
         .ok_or_else(|| format!("无效的会话路径格式: {}", source_path))?;
 
     // prompts 类型格式: "prompts:aiService.prompts:workspace_hash"
@@ -1734,6 +2013,27 @@ fn load_vscode_messages(platform: &str, source_path: &str) -> Result<Vec<Session
     Err(format!("未找到会话数据: platform={}, path={}", platform, source_path))
 }
 
+fn normalize_vscode_source_path(source_path: &str) -> String {
+    if source_path.contains(':') {
+        return source_path.to_string();
+    }
+
+    if let Some(session_id) = source_path.strip_prefix("aicube-history.") {
+        return format!("icube-history:{session_id}");
+    }
+    if let Some(session_id) = source_path.strip_prefix("icube-history.") {
+        return format!("icube-history:{session_id}");
+    }
+    if let Some(session_id) = source_path.strip_prefix("aicube.") {
+        return format!("icube:{session_id}");
+    }
+    if let Some(session_id) = source_path.strip_prefix("icube.") {
+        return format!("icube:{session_id}");
+    }
+
+    source_path.to_string()
+}
+
 fn load_vscode_composer_msgs(conn: &rusqlite::Connection, session_id: &str) -> Result<Vec<SessionMessage>, String> {
     if !vscode_table_exists(conn, "cursorDiskKV") { return Ok(Vec::new()); }
 
@@ -1748,15 +2048,19 @@ fn load_vscode_composer_msgs(conn: &rusqlite::Connection, session_id: &str) -> R
             for arr_key in &["conversation", "messages", "bubbles"] {
                 if let Some(arr) = json.get(*arr_key).and_then(|v| v.as_array()) {
                     for msg in arr {
-                        let role = vscode_determine_role(msg).unwrap_or_else(|| "assistant".to_string());
-                        if let Some(content) = vscode_extract_content(msg) {
-                            if !content.is_empty() {
-                                let ts = msg.get("timestamp").or_else(|| msg.get("createdAt")).and_then(|v| v.as_i64());
-                                messages.push(SessionMessage { role, content, timestamp: ts });
-                            }
-                        }
+                        if let Some(message) = vscode_build_session_message(msg) { messages.push(message); }
                     }
                     if !messages.is_empty() { break; }
+                }
+            }
+            if messages.is_empty() {
+                if let Some(headers) = json.get("fullConversationHeadersOnly").and_then(|v| v.as_array()) {
+                    let bubble_ids: Vec<String> = headers.iter()
+                        .filter_map(|header| header.get("bubbleId").and_then(|v| v.as_str()).map(|s| s.to_string()))
+                        .collect();
+                    if !bubble_ids.is_empty() {
+                        messages = vscode_load_bubble_messages(conn, session_id, Some(&bubble_ids));
+                    }
                 }
             }
         }
@@ -1764,52 +2068,31 @@ fn load_vscode_composer_msgs(conn: &rusqlite::Connection, session_id: &str) -> R
     if !messages.is_empty() { return Ok(messages); }
 
     // 尝试 2: bubbleId 分离消息
-    let key_pattern = format!("bubbleId:{}:%", session_id);
-    if let Ok(mut stmt) = conn.prepare("SELECT key, value FROM cursorDiskKV WHERE key LIKE ?1 ORDER BY key") {
-        if let Ok(rows) = stmt.query_map([&key_pattern], |row| {
-            let value = row.get::<_, Vec<u8>>(1).ok().or_else(|| row.get::<_, String>(1).ok().map(|s| s.into_bytes()));
-            Ok(value)
-        }) {
-            for row_result in rows.flatten() {
-                let Some(vb) = row_result else { continue };
-                if vb.is_empty() { continue; }
-                let Some(json) = vscode_parse_json_bytes(&vb) else { continue };
-                let role = vscode_determine_role(&json).unwrap_or_else(|| "assistant".to_string());
-                if let Some(content) = vscode_extract_content(&json) {
-                    if !content.is_empty() {
-                        let ts = json.get("timestamp").or_else(|| json.get("createdAt")).and_then(|v| v.as_i64());
-                        messages.push(SessionMessage { role, content, timestamp: ts });
-                    }
-                }
-            }
-        }
-    }
+    messages = vscode_load_bubble_messages(conn, session_id, None);
     if !messages.is_empty() { return Ok(messages); }
 
     // 尝试 3: 直接读取所有与 session_id 相关的 cursorDiskKV 条目
     let fallback_pattern = format!("%{}%", session_id);
-    if let Ok(mut stmt) = conn.prepare("SELECT key, value FROM cursorDiskKV WHERE key LIKE ?1 ORDER BY key") {
+    let mut fallback_entries: Vec<(i64, usize, SessionMessage)> = Vec::new();
+    if let Ok(mut stmt) = conn.prepare("SELECT key, value FROM cursorDiskKV WHERE key LIKE ?1") {
         if let Ok(rows) = stmt.query_map([&fallback_pattern], |row| {
             let key: String = row.get(0)?;
             let value = row.get::<_, Vec<u8>>(1).ok().or_else(|| row.get::<_, String>(1).ok().map(|s| s.into_bytes()));
             Ok((key, value))
         }) {
-            for row_result in rows.flatten() {
+            for (idx, row_result) in rows.flatten().enumerate() {
                 let (key, value_opt) = row_result;
                 if key.starts_with("composerData:") { continue; }
                 let Some(vb) = value_opt else { continue };
                 if vb.is_empty() { continue; }
                 let Some(json) = vscode_parse_json_bytes(&vb) else { continue };
-                let role = vscode_determine_role(&json).unwrap_or_else(|| "assistant".to_string());
-                if let Some(content) = vscode_extract_content(&json) {
-                    if !content.is_empty() {
-                        let ts = json.get("timestamp").or_else(|| json.get("createdAt")).and_then(|v| v.as_i64());
-                        messages.push(SessionMessage { role, content, timestamp: ts });
-                    }
-                }
+                let Some(message) = vscode_build_session_message(&json) else { continue };
+                fallback_entries.push((message.timestamp.unwrap_or(i64::MAX), idx, message));
             }
         }
     }
+    fallback_entries.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
+    messages = fallback_entries.into_iter().map(|(_, _, msg)| msg).collect();
 
     Ok(messages)
 }
@@ -1825,10 +2108,9 @@ fn load_vscode_chatdata_msgs(conn: &rusqlite::Connection, session_id: &str) -> R
             if tab_id != session_id { continue; }
             if let Some(bubbles) = tab.get("bubbles").and_then(|v| v.as_array()) {
                 for msg in bubbles {
-                    let role = vscode_determine_role(msg).unwrap_or_else(|| "assistant".to_string());
-                    let content = match vscode_extract_content(msg) { Some(c) if !c.is_empty() => c, _ => continue };
-                    let ts = msg.get("timestamp").or_else(|| msg.get("createdAt")).and_then(|v| v.as_i64());
-                    messages.push(SessionMessage { role, content, timestamp: ts });
+                    if let Some(message) = vscode_build_session_message(msg) {
+                        messages.push(message);
+                    }
                 }
             }
             break;
@@ -1848,10 +2130,9 @@ fn load_vscode_composer_table_msgs(conn: &rusqlite::Connection, session_id: &str
             if cid != session_id { continue; }
             if let Some(conv) = composer.get("conversation").and_then(|c| c.as_array()) {
                 for msg in conv {
-                    let role = vscode_determine_role(msg).unwrap_or_else(|| "assistant".to_string());
-                    let content = match vscode_extract_content(msg) { Some(c) if !c.is_empty() => c, _ => continue };
-                    let ts = msg.get("timestamp").or_else(|| msg.get("createdAt")).and_then(|v| v.as_i64());
-                    messages.push(SessionMessage { role, content, timestamp: ts });
+                    if let Some(message) = vscode_build_session_message(msg) {
+                        messages.push(message);
+                    }
                 }
             }
             break;
@@ -1860,16 +2141,67 @@ fn load_vscode_composer_table_msgs(conn: &rusqlite::Connection, session_id: &str
     Ok(messages)
 }
 
-fn load_vscode_icube_msgs(conn: &rusqlite::Connection, _session_id: &str) -> Result<Vec<SessionMessage>, String> {
+fn vscode_icube_matches_session(item: &Value, session_id: &str) -> bool {
+    [
+        "sessionId",
+        "id",
+        "chatId",
+        "conversationId",
+        "tabId",
+    ]
+    .iter()
+    .any(|field| item.get(*field).and_then(|v| v.as_str()) == Some(session_id))
+}
+
+fn vscode_build_icube_message(item: &Value) -> Option<SessionMessage> {
+    let content = item
+        .get("inputText")
+        .or_else(|| item.get("question"))
+        .or_else(|| item.get("text"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .or_else(|| vscode_extract_content(item))?;
+
+    let role = if item.get("outputText").is_some() || item.get("answer").is_some() {
+        "assistant".to_string()
+    } else if item.get("inputText").is_some() || item.get("question").is_some() {
+        "user".to_string()
+    } else {
+        vscode_determine_role(item).unwrap_or_else(|| "user".to_string())
+    };
+
+    Some(SessionMessage {
+        role,
+        content,
+        timestamp: vscode_extract_timestamp_ms(item),
+    })
+}
+
+fn load_vscode_icube_msgs(conn: &rusqlite::Connection, session_id: &str) -> Result<Vec<SessionMessage>, String> {
     if !vscode_table_exists(conn, "ItemTable") { return Ok(Vec::new()); }
     let Some(vb) = vscode_query_item_table(conn, "memento/icube-ai-agent-storage") else { return Ok(Vec::new()) };
     let Some(json) = vscode_parse_json_bytes(&vb) else { return Ok(Vec::new()) };
     let mut messages = Vec::new();
     if let Some(list) = json.get("list").and_then(|v| v.as_array()) {
         for item in list {
-            if let Some(text) = item.get("inputText").or_else(|| item.get("text")).and_then(|v| v.as_str()) {
-                if !text.is_empty() {
-                    messages.push(SessionMessage { role: "user".to_string(), content: text.to_string(), timestamp: None });
+            if !vscode_icube_matches_session(item, session_id) {
+                continue;
+            }
+
+            for arr_key in &["messages", "conversation", "history", "chatHistory"] {
+                if let Some(arr) = item.get(*arr_key).and_then(|v| v.as_array()) {
+                    for entry in arr {
+                        if let Some(message) = vscode_build_icube_message(entry).or_else(|| vscode_build_session_message(entry)) {
+                            messages.push(message);
+                        }
+                    }
+                }
+            }
+
+            if messages.is_empty() {
+                if let Some(message) = vscode_build_icube_message(item) {
+                    messages.push(message);
                 }
             }
         }

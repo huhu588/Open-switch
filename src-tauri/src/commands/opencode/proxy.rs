@@ -1,6 +1,6 @@
-﻿//! 代理服务器相关命令
+//! 代理服务器相关命令
 
-use crate::modules::opencode_db::schema::{ModelTrendData, ProviderStats, UsageSummary, UsageTrend};
+use crate::modules::opencode_db::schema::{ModelTrendData, ProjectStats, ProviderStats, UsageSummary, UsageTrend};
 use crate::modules::opencode_db::Database;
 use crate::modules::proxy::{ProxyServerInfo, ProxyService, ProxyStatus, ProxyTakeoverStatus};
 use serde::{Deserialize, Serialize};
@@ -158,10 +158,12 @@ pub async fn update_proxy_config(
 #[tauri::command]
 pub async fn get_proxy_usage_summary(
     period: String,
+    provider_id: Option<String>,
     db: State<'_, Arc<Database>>,
 ) -> Result<UsageSummary, String> {
     let (start_ts, end_ts) = get_time_range(&period);
-    db.get_usage_summary(start_ts, end_ts).map_err(|e| e.to_string())
+    db.get_usage_summary(start_ts, end_ts, provider_id.as_deref())
+        .map_err(|e| e.to_string())
 }
 
 /// 获取使用趋势
@@ -169,10 +171,17 @@ pub async fn get_proxy_usage_summary(
 pub async fn get_proxy_usage_trend(
     period: String,
     provider_id: Option<String>,
+    project_name: Option<String>,
     db: State<'_, Arc<Database>>,
 ) -> Result<Vec<UsageTrend>, String> {
     let (start_ts, end_ts) = get_time_range(&period);
-    db.get_usage_trend(start_ts, end_ts, &period, provider_id.as_deref())
+    db.get_usage_trend(
+        start_ts,
+        end_ts,
+        &period,
+        provider_id.as_deref(),
+        project_name.as_deref(),
+    )
         .map_err(|e| e.to_string())
 }
 
@@ -181,10 +190,17 @@ pub async fn get_proxy_usage_trend(
 pub async fn get_proxy_usage_trend_by_model(
     period: String,
     provider_id: Option<String>,
+    project_name: Option<String>,
     db: State<'_, Arc<Database>>,
 ) -> Result<Vec<ModelTrendData>, String> {
     let (start_ts, end_ts) = get_time_range(&period);
-    db.get_usage_trend_by_model(start_ts, end_ts, &period, provider_id.as_deref())
+    db.get_usage_trend_by_model(
+        start_ts,
+        end_ts,
+        &period,
+        provider_id.as_deref(),
+        project_name.as_deref(),
+    )
         .map_err(|e| e.to_string())
 }
 
@@ -196,6 +212,18 @@ pub async fn get_provider_stats(
 ) -> Result<Vec<ProviderStats>, String> {
     let (start_ts, end_ts) = get_time_range(&period);
     db.get_provider_stats(start_ts, end_ts).map_err(|e| e.to_string())
+}
+
+/// 获取各项目统计
+#[tauri::command]
+pub async fn get_project_stats(
+    period: String,
+    provider_id: Option<String>,
+    db: State<'_, Arc<Database>>,
+) -> Result<Vec<ProjectStats>, String> {
+    let (start_ts, end_ts) = get_time_range(&period);
+    db.get_project_stats(start_ts, end_ts, provider_id.as_deref())
+        .map_err(|e| e.to_string())
 }
 
 /// 清空使用统计

@@ -106,6 +106,17 @@ function getRoleColor(role: string): string {
   return 'var(--text-secondary)';
 }
 
+function isAgentSubtaskSession(session: SessionInfo): boolean {
+  const id = session.id.toLowerCase();
+  const filePath = session.file_path.toLowerCase();
+  return (
+    id.startsWith('task-call_')
+    || filePath.startsWith('bubble:task-call_')
+    || filePath.startsWith('composerdata:task-call_')
+    || filePath.startsWith('composer:task-call_')
+  );
+}
+
 function MessageItem({ message, onCopy }: { message: SessionMessage; onCopy: (text: string) => void }) {
   const isUser = ['user', 'human'].includes(message.role.toLowerCase());
 
@@ -177,6 +188,7 @@ export function SessionsPage() {
   const [localSearch, setLocalSearch] = useState('');
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [selectedSession, setSelectedSession] = useState<SessionInfo | null>(null);
+  const [showAgentSubtasks, setShowAgentSubtasks] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -264,6 +276,24 @@ export function SessionsPage() {
     ? `${selectedSession.platform}:${selectedSession.id}`
     : null;
 
+  const agentSubtaskCount = useMemo(
+    () => store.sessions.filter(isAgentSubtaskSession).length,
+    [store.sessions],
+  );
+
+  const visibleSessions = useMemo(
+    () => showAgentSubtasks
+      ? store.sessions
+      : store.sessions.filter((session) => !isAgentSubtaskSession(session)),
+    [showAgentSubtasks, store.sessions],
+  );
+
+  useEffect(() => {
+    if (selectedSession && !showAgentSubtasks && isAgentSubtaskSession(selectedSession)) {
+      setSelectedSession(null);
+    }
+  }, [selectedSession, showAgentSubtasks]);
+
   return (
     <div className="page-container" style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
       {/* 页面头部 */}
@@ -328,7 +358,13 @@ export function SessionsPage() {
           </div>
           <button
             className="btn btn-secondary icon-only"
-            onClick={() => store.loadSessions()}
+            onClick={() => {
+              if (localSearch.trim()) {
+                store.searchSessions(localSearch.trim(), store.platformFilter, true);
+              } else {
+                store.loadSessions(true);
+              }
+            }}
             title={t('common.refresh', '刷新')}
             style={{ height: 34, width: 34, flexShrink: 0 }}
           >
@@ -358,6 +394,18 @@ export function SessionsPage() {
             );
           })}
         </div>
+
+        {agentSubtaskCount > 0 && (
+          <button
+            className="btn btn-secondary"
+            style={{ height: 28, fontSize: 12, padding: '4px 10px', borderRadius: 6 }}
+            onClick={() => setShowAgentSubtasks((prev) => !prev)}
+          >
+            {showAgentSubtasks
+              ? t('sessions.hideAgentSubtasks', '隐藏 Agent 子任务')
+              : t('sessions.showAgentSubtasks', `显示 Agent 子任务 (${agentSubtaskCount})`)}
+          </button>
+        )}
       </div>
 
       {/* 主内容区域 - 左右分栏 */}
@@ -385,7 +433,7 @@ export function SessionsPage() {
                 padding: '1px 8px', borderRadius: 10, fontSize: 11, fontWeight: 600,
               }}
             >
-              {store.sessions.length}
+              {visibleSessions.length}
             </span>
           </div>
 
@@ -397,19 +445,22 @@ export function SessionsPage() {
                   {t('sessions.loading', '加载中...')}
                 </p>
               </div>
-            ) : store.sessions.length === 0 ? (
+            ) : visibleSessions.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '48px 16px' }}>
                 <FileText size={36} style={{ color: 'var(--text-tertiary)', marginBottom: 12 }} />
                 <p style={{ color: 'var(--text-secondary)', fontSize: 13, margin: 0 }}>
-                  {t('sessions.noSessions', '暂无会话记录')}
+                  {agentSubtaskCount > 0 && !showAgentSubtasks
+                    ? t('sessions.noVisibleSessions', '当前仅剩 Agent 子任务，打开上方开关即可查看')
+                    : t('sessions.noSessions', '暂无会话记录')}
                 </p>
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column' }}>
-                {store.sessions.map((session) => {
+                {visibleSessions.map((session) => {
                   const key = `${session.platform}:${session.id}`;
                   const isSelected = selectedKey === key;
                   const platformColor = PLATFORM_COLORS[session.platform] || '#6b7280';
+                  const isAgentSubtask = isAgentSubtaskSession(session);
 
                   return (
                     <button
@@ -441,6 +492,16 @@ export function SessionsPage() {
                           >
                             {PLATFORM_LABELS[session.platform] || session.platform}
                           </span>
+                          {isAgentSubtask && (
+                            <span
+                              style={{
+                                fontSize: 10, padding: '1px 6px', borderRadius: 999,
+                                fontWeight: 600, color: '#fff', background: '#f59e0b', flexShrink: 0,
+                              }}
+                            >
+                              {t('sessions.agentSubtask', 'Agent 子任务')}
+                            </span>
+                          )}
                         </div>
                         <div
                           style={{
@@ -693,6 +754,25 @@ export function SessionsPage() {
 
               {/* 消息列表 */}
               <div style={{ flex: 1, overflow: 'auto', padding: '14px 18px' }}>
+                {isAgentSubtaskSession(selectedSession) && (
+                  <div
+                    style={{
+                      marginBottom: 12,
+                      padding: '10px 12px',
+                      borderRadius: 8,
+                      border: '1px solid rgba(245, 158, 11, 0.25)',
+                      background: 'rgba(245, 158, 11, 0.08)',
+                      color: 'var(--text-secondary)',
+                      fontSize: 12,
+                      lineHeight: 1.6,
+                    }}
+                  >
+                    {t(
+                      'sessions.agentSubtaskHint',
+                      '这是 Cursor Agent 子任务，会话通常以工具调用和执行轨迹为主；完整的用户/AI 对话请优先查看左侧的普通会话。',
+                    )}
+                  </div>
+                )}
                 {store.messagesLoading ? (
                   <div style={{ textAlign: 'center', padding: '48px 0' }}>
                     <Loader2 size={28} className="spin" style={{ color: 'var(--text-tertiary)' }} />

@@ -32,8 +32,8 @@ interface SessionState {
 
   setSearchQuery: (query: string) => void;
   setPlatformFilter: (platform: string | null) => void;
-  loadSessions: () => Promise<void>;
-  searchSessions: (query: string, platform?: string | null) => Promise<void>;
+  loadSessions: (forceRefresh?: boolean) => Promise<void>;
+  searchSessions: (query: string, platform?: string | null, forceRefresh?: boolean) => Promise<void>;
   loadMessages: (platform: string, sourcePath: string) => Promise<void>;
   clearMessages: () => void;
   deleteSession: (platform: string, sessionId: string, sourcePath: string) => Promise<boolean>;
@@ -52,12 +52,13 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   setSearchQuery: (query) => set({ searchQuery: query }),
   setPlatformFilter: (platform) => set({ platformFilter: platform }),
 
-  loadSessions: async () => {
+  loadSessions: async (forceRefresh = false) => {
     set({ loading: true, error: null });
     try {
       const platform = get().platformFilter;
       const sessions = await invoke<SessionInfo[]>('list_sessions', {
         platform: platform ?? undefined,
+        forceRefresh: forceRefresh || undefined,
       });
       set({ sessions, loading: false });
     } catch (e) {
@@ -66,12 +67,13 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     }
   },
 
-  searchSessions: async (query, platform) => {
+  searchSessions: async (query, platform, forceRefresh = false) => {
     set({ loading: true, error: null });
     try {
       const sessions = await invoke<SessionInfo[]>('search_sessions', {
         query,
         platform: platform ?? get().platformFilter ?? undefined,
+        forceRefresh: forceRefresh || undefined,
       });
       set({ sessions, loading: false });
     } catch (e) {

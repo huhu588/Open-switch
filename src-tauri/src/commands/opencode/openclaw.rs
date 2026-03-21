@@ -1,4 +1,6 @@
-use crate::modules::opencode_config::openclaw_manager::{OpenClawConfigManager, OpenClawStatus};
+use crate::modules::opencode_config::openclaw_manager::{
+    OpenClawConfigManager, OpenClawProvider, OpenClawStatus,
+};
 
 #[tauri::command]
 pub fn get_openclaw_status() -> Result<OpenClawStatus, String> {
@@ -43,6 +45,13 @@ pub fn save_openclaw_soul_content(content: String) -> Result<(), String> {
     let manager =
         OpenClawConfigManager::new().map_err(|e| format!("初始化 OpenClaw 管理器失败: {}", e))?;
     manager.save_soul_content(&content)
+}
+
+#[tauri::command]
+pub async fn apply_provider_to_openclaw(provider: OpenClawProvider) -> Result<(), String> {
+    let manager =
+        OpenClawConfigManager::new().map_err(|e| format!("初始化 OpenClaw 管理器失败: {}", e))?;
+    manager.apply_provider(&provider)
 }
 
 #[tauri::command]

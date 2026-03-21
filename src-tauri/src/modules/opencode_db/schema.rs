@@ -1,4 +1,4 @@
-﻿//! 数据库 Schema 定义和迁移
+//! 数据库 Schema 定义和迁移
 //!
 //! 负责数据库表结构的创建和版本迁移
 
@@ -24,6 +24,7 @@ impl Database {
                 app_type TEXT NOT NULL,
                 model TEXT NOT NULL,
                 request_model TEXT,
+                project_name TEXT,
                 input_tokens INTEGER NOT NULL DEFAULT 0,
                 output_tokens INTEGER NOT NULL DEFAULT 0,
                 cache_read_tokens INTEGER NOT NULL DEFAULT 0,
@@ -66,6 +67,17 @@ impl Database {
             [],
         )
         .map_err(|e| AppError::Database(format!("创建 model 索引失败: {e}")))?;
+
+        // 兼容旧数据库：旧表在迁移前还没有 project_name 列，此时先跳过索引创建，
+        // 由后续迁移在补齐列后再创建索引，避免启动阶段直接崩溃。
+        if Self::column_exists(conn, "proxy_request_logs", "project_name")? {
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_request_logs_project_name
+                 ON proxy_request_logs(project_name)",
+                [],
+            )
+            .map_err(|e| AppError::Database(format!("创建 project_name 索引失败: {e}")))?;
+        }
 
         // 2. 模型定价表（默认全局定价）
         conn.execute(
@@ -213,26 +225,21 @@ impl Database {
             )));
         }
 
+        if version < 2 {
+            Self::migrate_to_v2_add_project_name(&conn)?;
+        }
+
         if version < SCHEMA_VERSION {
-            // 执行迁移
             Self::set_user_version(&conn, SCHEMA_VERSION)?;
         }
 
         Ok(())
     }
 
-    /// 确保模型定价数据已初始化
+    /// 确保模型定价数据已初始化（使用 INSERT OR IGNORE 补全缺失条目）
     pub(crate) fn ensure_model_pricing_seeded(&self) -> Result<(), AppError> {
         let conn = lock_conn!(self.conn);
-        
-        let count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM model_pricing", [], |row| row.get(0))
-            .map_err(|e| AppError::Database(format!("统计模型定价数据失败: {e}")))?;
-
-        if count == 0 {
-            Self::seed_model_pricing(&conn)?;
-        }
-
+        Self::seed_model_pricing(&conn)?;
         Ok(())
     }
 
@@ -270,11 +277,46 @@ impl Database {
             // Kimi 系列
             ("kimi-k2-thinking", "Kimi K2 Thinking", "4.00", "16.00", "1.00", "0"),
             ("kimi-k2-0905", "Kimi K2", "4.00", "16.00", "1.00", "0"),
+            // Cursor Composer 系列
+            ("composer-2", "Composer 2", "0.50", "2.50", "0.05", "0.625"),
+            ("composer-1.5", "Composer 1.5", "3.50", "17.50", "0.35", "4.375"),
+            ("composer-1", "Composer 1", "1.25", "10.00", "0.125", "2.50"),
+            ("cursor-auto", "Cursor Auto", "1.25", "6.00", "0.25", "1.25"),
+            ("cursor-composer", "Cursor Composer", "0.50", "2.50", "0.05", "0.625"),
+            ("cursor-aiservice", "Cursor AI Service", "1.25", "6.00", "0.25", "1.25"),
+            ("default", "Cursor Default", "1.25", "6.00", "0.25", "1.25"),
+            // GPT-5.4 系列
+            ("gpt-5.4", "GPT-5.4", "2.50", "10.00", "0.25", "0"),
+            ("gpt-5.4-codex", "GPT-5.4 Codex", "2.50", "10.00", "0.25", "0"),
+            ("gpt-5.4-xhigh", "GPT-5.4 XHigh", "2.50", "10.00", "0.25", "0"),
+            // GPT-5.2 Codex 变体
+            ("gpt-5.2-codex-xhigh", "GPT-5.2 Codex XHigh", "1.75", "14", "0.175", "0"),
+            ("gpt-5.2-codex-xhigh-fast", "GPT-5.2 Codex XHigh Fast", "1.75", "14", "0.175", "0"),
+            // GPT-5.1 Codex 变体
+            ("gpt-5.1-codex-max-high", "GPT-5.1 Codex Max High", "1.25", "10", "0.125", "0"),
+            ("gpt-5.1-codex-max-xhigh", "GPT-5.1 Codex Max XHigh", "1.25", "10", "0.125", "0"),
+            // Gemini 3 Pro
+            ("gemini-3-pro", "Gemini 3 Pro", "2", "12", "0.20", "0"),
+            // Claude 4.6 Cursor 变体
+            ("claude-4.6-opus-max-thinking", "Claude 4.6 Opus Max Thinking", "5", "25", "0.50", "6.25"),
+            ("claude-4.6-opus-max-thinking-fast", "Claude 4.6 Opus Max Fast", "5", "25", "0.50", "6.25"),
+            ("claude-4.6-opus-high-thinking", "Claude 4.6 Opus High Thinking", "5", "25", "0.50", "6.25"),
+            ("claude-4-6-opus-max", "Claude 4.6 Opus Max", "5", "25", "0.50", "6.25"),
+            // Claude 4.5 Cursor 变体
+            ("claude-4.5-opus-high-thinking", "Claude 4.5 Opus High Thinking", "5", "25", "0.50", "6.25"),
+            ("claude-4.5-opus-thinking", "Claude 4.5 Opus Thinking", "5", "25", "0.50", "6.25"),
+            ("claude-4-5-opus-thinking", "Claude 4.5 Opus Thinking", "5", "25", "0.50", "6.25"),
+            ("claude-4.5-sonnet-thinking", "Claude 4.5 Sonnet Thinking", "3", "15", "0.30", "3.75"),
+            // Claude 4 Cursor 变体
+            ("claude-4-sonnet-thinking", "Claude 4 Sonnet Thinking", "3", "15", "0.30", "3.75"),
+            ("claude-sonnet-thinking", "Claude Sonnet Thinking", "3", "15", "0.30", "3.75"),
+            // Qwen 系列
+            ("qwen3.5-plus", "Qwen 3.5 Plus", "1.50", "6.00", "0.15", "0"),
         ];
 
         for (model_id, display_name, input, output, cache_read, cache_creation) in pricing_data {
             conn.execute(
-                "INSERT OR REPLACE INTO model_pricing (
+                "INSERT OR IGNORE INTO model_pricing (
                     model_id, display_name, input_cost_per_million, output_cost_per_million,
                     cache_read_cost_per_million, cache_creation_cost_per_million
                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
@@ -299,6 +341,41 @@ impl Database {
             .map_err(|e| AppError::Database(format!("写入 user_version 失败: {e}")))?;
         Ok(())
     }
+
+    fn column_exists(conn: &Connection, table_name: &str, column_name: &str) -> Result<bool, AppError> {
+        let pragma = format!("PRAGMA table_info({table_name})");
+        let mut stmt = conn
+            .prepare(&pragma)
+            .map_err(|e| AppError::Database(format!("读取表结构失败: {e}")))?;
+        let rows = stmt
+            .query_map([], |row| row.get::<_, String>(1))
+            .map_err(|e| AppError::Database(format!("查询表结构失败: {e}")))?;
+
+        for row in rows {
+            let name = row.map_err(|e| AppError::Database(format!("读取列名失败: {e}")))?;
+            if name == column_name {
+                return Ok(true);
+            }
+        }
+
+        Ok(false)
+    }
+
+    fn migrate_to_v2_add_project_name(conn: &Connection) -> Result<(), AppError> {
+        if !Self::column_exists(conn, "proxy_request_logs", "project_name")? {
+            conn.execute("ALTER TABLE proxy_request_logs ADD COLUMN project_name TEXT", [])
+                .map_err(|e| AppError::Database(format!("新增 project_name 列失败: {e}")))?;
+        }
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_request_logs_project_name
+             ON proxy_request_logs(project_name)",
+            [],
+        )
+        .map_err(|e| AppError::Database(format!("创建 project_name 索引失败: {e}")))?;
+
+        Ok(())
+    }
 }
 
 // ============================================================================
@@ -318,6 +395,7 @@ pub struct UsageSummary {
     pub total_output_tokens: u64,
     pub total_cache_creation_tokens: u64,
     pub total_cache_read_tokens: u64,
+    pub active_days: u64,
     pub success_rate: f32,
 }
 
@@ -342,6 +420,9 @@ pub struct UsageTrend {
     pub total_cost: f64,
     pub input_tokens: u64,
     pub output_tokens: u64,
+    pub total_cache_creation_tokens: u64,
+    pub total_cache_read_tokens: u64,
+    pub total_tokens: u64,
     pub top_model: Option<String>,
 }
 
@@ -352,6 +433,8 @@ pub struct ModelUsage {
     pub model: String,
     pub input_tokens: u64,
     pub output_tokens: u64,
+    pub total_cache_creation_tokens: u64,
+    pub total_cache_read_tokens: u64,
     pub total_tokens: u64,
     pub total_cost: f64,
     pub request_count: u64,
@@ -381,6 +464,22 @@ pub struct ProviderStats {
     pub total_cache_read_tokens: u64,
     pub total_cost: String,
     pub success_rate: f32,
+}
+
+/// 项目统计
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectStats {
+    pub project_name: String,
+    pub request_count: u64,
+    pub total_tokens: u64,
+    pub total_input_tokens: u64,
+    pub total_output_tokens: u64,
+    pub total_cache_creation_tokens: u64,
+    pub total_cache_read_tokens: u64,
+    pub total_cost: String,
+    pub provider_count: u64,
+    pub model_count: u64,
 }
 
 /// 代理配置
@@ -435,20 +534,34 @@ impl Default for ProxyConfigDb {
 
 impl Database {
     /// 获取使用量汇总
-    pub fn get_usage_summary(&self, start_ts: Option<i64>, end_ts: Option<i64>) -> Result<UsageSummary, AppError> {
+    pub fn get_usage_summary(
+        &self,
+        start_ts: Option<i64>,
+        end_ts: Option<i64>,
+        provider_id: Option<&str>,
+    ) -> Result<UsageSummary, AppError> {
         let conn = lock_conn!(self.conn);
 
-        let (where_clause, params): (String, Vec<i64>) = match (start_ts, end_ts) {
-            (Some(start), Some(end)) => {
-                ("WHERE created_at >= ?1 AND created_at <= ?2".to_string(), vec![start, end])
-            }
-            (Some(start), None) => {
-                ("WHERE created_at >= ?1".to_string(), vec![start])
-            }
-            (None, Some(end)) => {
-                ("WHERE created_at <= ?1".to_string(), vec![end])
-            }
-            (None, None) => (String::new(), vec![]),
+        let mut conditions: Vec<String> = Vec::new();
+        let mut params: Vec<rusqlite::types::Value> = Vec::new();
+
+        if let Some(start) = start_ts {
+            conditions.push("created_at >= ?".to_string());
+            params.push(start.into());
+        }
+        if let Some(end) = end_ts {
+            conditions.push("created_at <= ?".to_string());
+            params.push(end.into());
+        }
+        if let Some(pid) = provider_id {
+            conditions.push("provider_id = ?".to_string());
+            params.push(pid.to_string().into());
+        }
+
+        let where_clause = if conditions.is_empty() {
+            String::new()
+        } else {
+            format!("WHERE {}", conditions.join(" AND "))
         };
 
         let sql = format!(
@@ -459,90 +572,43 @@ impl Database {
                 COALESCE(SUM(output_tokens), 0) as total_output_tokens,
                 COALESCE(SUM(cache_creation_tokens), 0) as total_cache_creation_tokens,
                 COALESCE(SUM(cache_read_tokens), 0) as total_cache_read_tokens,
+                COUNT(DISTINCT date(created_at, 'unixepoch', 'localtime')) as active_days,
                 COALESCE(SUM(CASE WHEN status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END), 0) as success_count
             FROM proxy_request_logs
             {where_clause}"
         );
 
-        let result = if params.is_empty() {
-            conn.query_row(&sql, [], |row| {
-                let total_requests: i64 = row.get(0)?;
-                let total_cost: f64 = row.get(1)?;
-                let total_input_tokens: i64 = row.get(2)?;
-                let total_output_tokens: i64 = row.get(3)?;
-                let total_cache_creation_tokens: i64 = row.get(4)?;
-                let total_cache_read_tokens: i64 = row.get(5)?;
-                let success_count: i64 = row.get(6)?;
+        let mut stmt = conn
+            .prepare(&sql)
+            .map_err(|e| AppError::Database(format!("准备使用量汇总查询失败: {e}")))?;
 
-                let success_rate = if total_requests > 0 {
-                    (success_count as f32 / total_requests as f32) * 100.0
-                } else {
-                    0.0
-                };
+        let result = stmt.query_row(rusqlite::params_from_iter(params), |row| {
+            let total_requests: i64 = row.get(0)?;
+            let total_cost: f64 = row.get(1)?;
+            let total_input_tokens: i64 = row.get(2)?;
+            let total_output_tokens: i64 = row.get(3)?;
+            let total_cache_creation_tokens: i64 = row.get(4)?;
+            let total_cache_read_tokens: i64 = row.get(5)?;
+            let active_days: i64 = row.get(6)?;
+            let success_count: i64 = row.get(7)?;
 
-                Ok(UsageSummary {
-                    total_requests: total_requests as u64,
-                    total_cost: format!("{total_cost:.6}"),
-                    total_input_tokens: total_input_tokens as u64,
-                    total_output_tokens: total_output_tokens as u64,
-                    total_cache_creation_tokens: total_cache_creation_tokens as u64,
-                    total_cache_read_tokens: total_cache_read_tokens as u64,
-                    success_rate,
-                })
+            let success_rate = if total_requests > 0 {
+                (success_count as f32 / total_requests as f32) * 100.0
+            } else {
+                0.0
+            };
+
+            Ok(UsageSummary {
+                total_requests: total_requests as u64,
+                total_cost: format!("{total_cost:.6}"),
+                total_input_tokens: total_input_tokens as u64,
+                total_output_tokens: total_output_tokens as u64,
+                total_cache_creation_tokens: total_cache_creation_tokens as u64,
+                total_cache_read_tokens: total_cache_read_tokens as u64,
+                active_days: active_days as u64,
+                success_rate,
             })
-        } else if params.len() == 1 {
-            conn.query_row(&sql, [params[0]], |row| {
-                let total_requests: i64 = row.get(0)?;
-                let total_cost: f64 = row.get(1)?;
-                let total_input_tokens: i64 = row.get(2)?;
-                let total_output_tokens: i64 = row.get(3)?;
-                let total_cache_creation_tokens: i64 = row.get(4)?;
-                let total_cache_read_tokens: i64 = row.get(5)?;
-                let success_count: i64 = row.get(6)?;
-
-                let success_rate = if total_requests > 0 {
-                    (success_count as f32 / total_requests as f32) * 100.0
-                } else {
-                    0.0
-                };
-
-                Ok(UsageSummary {
-                    total_requests: total_requests as u64,
-                    total_cost: format!("{total_cost:.6}"),
-                    total_input_tokens: total_input_tokens as u64,
-                    total_output_tokens: total_output_tokens as u64,
-                    total_cache_creation_tokens: total_cache_creation_tokens as u64,
-                    total_cache_read_tokens: total_cache_read_tokens as u64,
-                    success_rate,
-                })
-            })
-        } else {
-            conn.query_row(&sql, [params[0], params[1]], |row| {
-                let total_requests: i64 = row.get(0)?;
-                let total_cost: f64 = row.get(1)?;
-                let total_input_tokens: i64 = row.get(2)?;
-                let total_output_tokens: i64 = row.get(3)?;
-                let total_cache_creation_tokens: i64 = row.get(4)?;
-                let total_cache_read_tokens: i64 = row.get(5)?;
-                let success_count: i64 = row.get(6)?;
-
-                let success_rate = if total_requests > 0 {
-                    (success_count as f32 / total_requests as f32) * 100.0
-                } else {
-                    0.0
-                };
-
-                Ok(UsageSummary {
-                    total_requests: total_requests as u64,
-                    total_cost: format!("{total_cost:.6}"),
-                    total_input_tokens: total_input_tokens as u64,
-                    total_output_tokens: total_output_tokens as u64,
-                    total_cache_creation_tokens: total_cache_creation_tokens as u64,
-                    total_cache_read_tokens: total_cache_read_tokens as u64,
-                    success_rate,
-                })
-            })
-        };
+        });
 
         result.map_err(|e| AppError::Database(format!("查询使用量汇总失败: {e}")))
     }
@@ -554,6 +620,7 @@ impl Database {
         end_ts: Option<i64>,
         period: &str,
         provider_id: Option<&str>,
+        project_name: Option<&str>,
     ) -> Result<Vec<UsageTrend>, AppError> {
         let conn = lock_conn!(self.conn);
 
@@ -581,6 +648,10 @@ impl Database {
             conditions.push("provider_id = ?".to_string());
             params.push(pid.to_string().into());
         }
+        if let Some(project) = project_name.map(str::trim).filter(|value| !value.is_empty()) {
+            conditions.push("TRIM(COALESCE(project_name, '')) = ?".to_string());
+            params.push(project.to_string().into());
+        }
 
         let where_clause = if conditions.is_empty() {
             String::new()
@@ -594,7 +665,10 @@ impl Database {
                 COUNT(*) as request_count,
                 COALESCE(SUM(CAST(total_cost_usd AS REAL)), 0) as total_cost,
                 COALESCE(SUM(input_tokens), 0) as input_tokens,
-                COALESCE(SUM(output_tokens), 0) as output_tokens
+                COALESCE(SUM(output_tokens), 0) as output_tokens,
+                COALESCE(SUM(cache_creation_tokens), 0) as total_cache_creation_tokens,
+                COALESCE(SUM(cache_read_tokens), 0) as total_cache_read_tokens,
+                COALESCE(SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens), 0) as total_tokens
             FROM proxy_request_logs
             {where_clause}
             GROUP BY period
@@ -645,6 +719,9 @@ impl Database {
                 total_cost: row.get(2).map_err(|e| AppError::Database(format!("读取字段失败: {e}")))?,
                 input_tokens: row.get::<_, i64>(3).map_err(|e| AppError::Database(format!("读取字段失败: {e}")))? as u64,
                 output_tokens: row.get::<_, i64>(4).map_err(|e| AppError::Database(format!("读取字段失败: {e}")))? as u64,
+                total_cache_creation_tokens: row.get::<_, i64>(5).map_err(|e| AppError::Database(format!("读取字段失败: {e}")))? as u64,
+                total_cache_read_tokens: row.get::<_, i64>(6).map_err(|e| AppError::Database(format!("读取字段失败: {e}")))? as u64,
+                total_tokens: row.get::<_, i64>(7).map_err(|e| AppError::Database(format!("读取字段失败: {e}")))? as u64,
                 top_model,
             });
         }
@@ -659,6 +736,7 @@ impl Database {
         end_ts: Option<i64>,
         period: &str,
         provider_id: Option<&str>,
+        project_name: Option<&str>,
     ) -> Result<Vec<ModelTrendData>, AppError> {
         let conn = lock_conn!(self.conn);
 
@@ -686,6 +764,10 @@ impl Database {
             conditions.push("provider_id = ?".to_string());
             params.push(pid.to_string().into());
         }
+        if let Some(project) = project_name.map(str::trim).filter(|value| !value.is_empty()) {
+            conditions.push("TRIM(COALESCE(project_name, '')) = ?".to_string());
+            params.push(project.to_string().into());
+        }
 
         let where_clause = if conditions.is_empty() {
             String::new()
@@ -700,7 +782,9 @@ impl Database {
                 model,
                 COALESCE(SUM(input_tokens), 0) as input_tokens,
                 COALESCE(SUM(output_tokens), 0) as output_tokens,
-                COALESCE(SUM(input_tokens + output_tokens), 0) as total_tokens,
+                COALESCE(SUM(cache_creation_tokens), 0) as total_cache_creation_tokens,
+                COALESCE(SUM(cache_read_tokens), 0) as total_cache_read_tokens,
+                COALESCE(SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens), 0) as total_tokens,
                 COALESCE(SUM(CAST(total_cost_usd AS REAL)), 0) as total_cost,
                 COUNT(*) as request_count
             FROM proxy_request_logs
@@ -728,9 +812,11 @@ impl Database {
                 model,
                 input_tokens: row.get::<_, i64>(2).map_err(|e| AppError::Database(format!("读取字段失败: {e}")))? as u64,
                 output_tokens: row.get::<_, i64>(3).map_err(|e| AppError::Database(format!("读取字段失败: {e}")))? as u64,
-                total_tokens: row.get::<_, i64>(4).map_err(|e| AppError::Database(format!("读取字段失败: {e}")))? as u64,
-                total_cost: row.get(5).map_err(|e| AppError::Database(format!("读取字段失败: {e}")))?,
-                request_count: row.get::<_, i64>(6).map_err(|e| AppError::Database(format!("读取字段失败: {e}")))? as u64,
+                total_cache_creation_tokens: row.get::<_, i64>(4).map_err(|e| AppError::Database(format!("读取字段失败: {e}")))? as u64,
+                total_cache_read_tokens: row.get::<_, i64>(5).map_err(|e| AppError::Database(format!("读取字段失败: {e}")))? as u64,
+                total_tokens: row.get::<_, i64>(6).map_err(|e| AppError::Database(format!("读取字段失败: {e}")))? as u64,
+                total_cost: row.get(7).map_err(|e| AppError::Database(format!("读取字段失败: {e}")))?,
+                request_count: row.get::<_, i64>(8).map_err(|e| AppError::Database(format!("读取字段失败: {e}")))? as u64,
             };
 
             period_map.entry(period).or_default().push(model_usage);
@@ -754,6 +840,99 @@ impl Database {
         Ok(result)
     }
 
+    /// 获取项目统计（仅统计已识别项目名的记录）
+    pub fn get_project_stats(
+        &self,
+        start_ts: Option<i64>,
+        end_ts: Option<i64>,
+        provider_id: Option<&str>,
+    ) -> Result<Vec<ProjectStats>, AppError> {
+        let conn = lock_conn!(self.conn);
+
+        let mut conditions: Vec<String> = vec!["NULLIF(TRIM(project_name), '') IS NOT NULL".to_string()];
+        let mut params: Vec<rusqlite::types::Value> = Vec::new();
+
+        if let Some(start) = start_ts {
+            conditions.push("created_at >= ?".to_string());
+            params.push(start.into());
+        }
+        if let Some(end) = end_ts {
+            conditions.push("created_at <= ?".to_string());
+            params.push(end.into());
+        }
+        if let Some(pid) = provider_id {
+            conditions.push("provider_id = ?".to_string());
+            params.push(pid.to_string().into());
+        }
+
+        let where_clause = format!("WHERE {}", conditions.join(" AND "));
+        let sql = format!(
+            "SELECT
+                TRIM(project_name) as project_name,
+                COUNT(*) as request_count,
+                COALESCE(SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens), 0) as total_tokens,
+                COALESCE(SUM(input_tokens), 0) as total_input_tokens,
+                COALESCE(SUM(output_tokens), 0) as total_output_tokens,
+                COALESCE(SUM(cache_creation_tokens), 0) as total_cache_creation_tokens,
+                COALESCE(SUM(cache_read_tokens), 0) as total_cache_read_tokens,
+                COALESCE(SUM(CAST(total_cost_usd AS REAL)), 0) as total_cost,
+                COUNT(DISTINCT provider_id) as provider_count,
+                COUNT(DISTINCT model) as model_count
+            FROM proxy_request_logs
+            {where_clause}
+            GROUP BY TRIM(project_name)
+            ORDER BY total_cost DESC, total_tokens DESC, project_name ASC"
+        );
+
+        let mut stmt = conn
+            .prepare(&sql)
+            .map_err(|e| AppError::Database(format!("准备项目统计查询失败: {e}")))?;
+
+        let mut rows = stmt
+            .query(rusqlite::params_from_iter(params))
+            .map_err(|e| AppError::Database(format!("查询项目统计失败: {e}")))?;
+
+        let mut stats = Vec::new();
+        while let Some(row) = rows.next().map_err(|e| AppError::Database(format!("读取项目统计失败: {e}")))? {
+            stats.push(ProjectStats {
+                project_name: row
+                    .get::<_, String>(0)
+                    .map_err(|e| AppError::Database(format!("读取项目名称失败: {e}")))?,
+                request_count: row
+                    .get::<_, i64>(1)
+                    .map_err(|e| AppError::Database(format!("读取请求数失败: {e}")))? as u64,
+                total_tokens: row
+                    .get::<_, i64>(2)
+                    .map_err(|e| AppError::Database(format!("读取总 Token 失败: {e}")))? as u64,
+                total_input_tokens: row
+                    .get::<_, i64>(3)
+                    .map_err(|e| AppError::Database(format!("读取输入 Token 失败: {e}")))? as u64,
+                total_output_tokens: row
+                    .get::<_, i64>(4)
+                    .map_err(|e| AppError::Database(format!("读取输出 Token 失败: {e}")))? as u64,
+                total_cache_creation_tokens: row
+                    .get::<_, i64>(5)
+                    .map_err(|e| AppError::Database(format!("读取缓存写入失败: {e}")))? as u64,
+                total_cache_read_tokens: row
+                    .get::<_, i64>(6)
+                    .map_err(|e| AppError::Database(format!("读取缓存读取失败: {e}")))? as u64,
+                total_cost: format!(
+                    "{:.6}",
+                    row.get::<_, f64>(7)
+                        .map_err(|e| AppError::Database(format!("读取项目成本失败: {e}")))?
+                ),
+                provider_count: row
+                    .get::<_, i64>(8)
+                    .map_err(|e| AppError::Database(format!("读取服务商数失败: {e}")))? as u64,
+                model_count: row
+                    .get::<_, i64>(9)
+                    .map_err(|e| AppError::Database(format!("读取模型数失败: {e}")))? as u64,
+            });
+        }
+
+        Ok(stats)
+    }
+
     /// 获取每日趋势
     pub fn get_daily_trends(&self, start_ts: i64, end_ts: i64, bucket_seconds: i64) -> Result<Vec<DailyStats>, AppError> {
         let conn = lock_conn!(self.conn);
@@ -763,7 +942,7 @@ impl Database {
                 CAST((created_at - ?1) / ?3 AS INTEGER) as bucket_idx,
                 COUNT(*) as request_count,
                 COALESCE(SUM(CAST(total_cost_usd AS REAL)), 0) as total_cost,
-                COALESCE(SUM(input_tokens + output_tokens), 0) as total_tokens,
+                COALESCE(SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens), 0) as total_tokens,
                 COALESCE(SUM(input_tokens), 0) as total_input_tokens,
                 COALESCE(SUM(output_tokens), 0) as total_output_tokens
             FROM proxy_request_logs
@@ -846,7 +1025,7 @@ impl Database {
                 provider_id,
                 COALESCE(provider_name, provider_id) as provider_name,
                 COUNT(*) as request_count,
-                COALESCE(SUM(input_tokens + output_tokens), 0) as total_tokens,
+                COALESCE(SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens), 0) as total_tokens,
                 COALESCE(SUM(input_tokens), 0) as total_input_tokens,
                 COALESCE(SUM(output_tokens), 0) as total_output_tokens,
                 COALESCE(SUM(cache_creation_tokens), 0) as total_cache_creation_tokens,

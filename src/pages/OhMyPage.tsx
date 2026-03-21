@@ -10,6 +10,18 @@ interface OhMyStatus { bun_installed: boolean; bun_version: string | null; npm_i
 interface AvailableModel { provider_name: string; model_id: string; display_name: string; }
 interface AgentInfo { key: string; name: string; description: string; usage: string | null; }
 
+function pickDefaultModel(models: AvailableModel[]) {
+  const userModels = models.filter(m => m.provider_name !== 'OpenCode Zen');
+  if (userModels.length > 0) {
+    const claudeModel = userModels.find(m => m.model_id.toLowerCase().includes('claude'));
+    return claudeModel?.display_name || userModels[0].display_name;
+  }
+
+  const freeModels = models.filter(m => m.provider_name === 'OpenCode Zen');
+  const glm = freeModels.find(m => m.model_id === 'glm-4.7');
+  return glm?.display_name || models[0]?.display_name || '';
+}
+
 const AGENT_COLORS = [
   { bg: 'linear-gradient(135deg, rgba(139, 92, 246, 0.15), rgba(168, 85, 247, 0.1))', color: '#8b5cf6' },
   { bg: 'linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(99, 102, 241, 0.1))', color: '#3b82f6' },
@@ -23,6 +35,7 @@ export function OhMyPage() {
   const { t } = useTranslation();
   const toast = useToast();
   const [loading, setLoading] = useState(true);
+  const [versionLoading, setVersionLoading] = useState(false);
   const [installing, setInstalling] = useState(false);
   const [uninstalling, setUninstalling] = useState(false);
   const [updating, setUpdating] = useState(false);
@@ -35,16 +48,29 @@ export function OhMyPage() {
 
   const freeModels = useMemo(() => availableModels.filter(m => m.provider_name === 'OpenCode Zen'), [availableModels]);
   const userModels = useMemo(() => availableModels.filter(m => m.provider_name !== 'OpenCode Zen'), [availableModels]);
+  // 仅当所有 Agent 使用同一模型时，快速设置下拉框才回显该值。
+  const quickSetModel = useMemo(() => {
+    if (agentInfos.length === 0) return '';
 
-  const defaultModel = useMemo(() => {
-    if (userModels.length > 0) {
-      const claudeModel = userModels.find(m => m.model_id.toLowerCase().includes('claude'));
-      if (claudeModel) return claudeModel.display_name;
-      return userModels[0].display_name;
+    const selectedModels = agentInfos
+      .map(agent => agentModels[agent.key])
+      .filter((model): model is string => Boolean(model));
+
+    if (selectedModels.length !== agentInfos.length) return '';
+
+    const [firstModel, ...restModels] = selectedModels;
+    return restModels.every(model => model === firstModel) ? firstModel : '';
+  }, [agentInfos, agentModels]);
+
+  const loadVersionInfo = useCallback(async () => {
+    setVersionLoading(true);
+    try {
+      const versionInfo = await invoke<OhMyVersionInfo | null>('get_ohmy_version_info');
+      setStatus(prev => (prev ? { ...prev, version_info: versionInfo } : prev));
+    } finally {
+      setVersionLoading(false);
     }
-    const glm = freeModels.find(m => m.model_id === 'glm-4.7');
-    return glm?.display_name || availableModels[0]?.display_name || '';
-  }, [availableModels, userModels, freeModels]);
+  }, []);
 
   const loadStatus = useCallback(async () => {
     setLoading(true);
@@ -57,16 +83,18 @@ export function OhMyPage() {
       setStatus(s);
       setAvailableModels(m);
       setAgentInfos(a);
+      const fallbackModel = pickDefaultModel(m);
       const models: Record<string, string> = {};
       for (const agent of a) {
-        models[agent.key] = s?.config?.agents?.[agent.key]?.model || defaultModel;
+        models[agent.key] = s?.config?.agents?.[agent.key]?.model || fallbackModel;
       }
       setAgentModels(models);
       if (!installLog.includes('\u274C')) setInstallLog('');
+      void loadVersionInfo();
     } catch (e) {
       toast.error(t('ohmy.loadFailed', '加载状态失败'));
     } finally { setLoading(false); }
-  }, [defaultModel, installLog, t]);
+  }, [installLog, loadVersionInfo, t, toast]);
 
   const installAndConfigure = async () => {
     setInstalling(true);
@@ -126,8 +154,9 @@ export function OhMyPage() {
 
   useEffect(() => { loadStatus(); }, []);
 
-  const renderModelSelect = (value: string, onChange: (v: string) => void) => (
+  const renderModelSelect = (value: string, onChange: (v: string) => void, placeholder?: string) => (
     <select className="select select-sm select-bordered w-full" value={value} onChange={e => onChange(e.target.value)}>
+      {placeholder && <option value="">{placeholder}</option>}
       {userModels.length > 0 && (
         <optgroup label={t('ohmy.yourModels', '你的模型')}>
           {userModels.map(m => <option key={m.display_name} value={m.display_name}>{m.display_name}</option>)}
@@ -221,6 +250,15 @@ export function OhMyPage() {
             </div>
           )}
 
+          {versionLoading && !status?.version_info && (
+            <div className="oc-mcp-card">
+              <div className="flex items-center gap-2 text-sm opacity-70">
+                <Loader2 className="animate-spin" size={14} />
+                <span>{t('ohmy.checkingVersion', '正在检查版本信息...')}</span>
+              </div>
+            </div>
+          )}
+
           {installLog && (
             <div className={`oc-mcp-card ${installLog.includes('\u274C') ? '' : ''}`} style={installLog.includes('\u274C') ? { borderColor: 'rgba(239, 68, 68, 0.3)', background: 'rgba(239, 68, 68, 0.05)' } : {}}>
               <h4 className="text-sm font-medium mb-2">{t('ohmy.installLog', '安装日志')}</h4>
@@ -237,7 +275,7 @@ export function OhMyPage() {
                   <p className="text-xs opacity-50">{t('ohmy.quickSetDesc', '为所有 Agent 设置相同的模型')}</p>
                 </div>
                 <div style={{ minWidth: '200px' }}>
-                  {renderModelSelect('', v => setAllAgentsModel(v))}
+                  {renderModelSelect(quickSetModel, v => setAllAgentsModel(v), t('ohmy.quickSetPlaceholder', '请选择统一模型'))}
                 </div>
               </div>
             </div>

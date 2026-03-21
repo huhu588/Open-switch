@@ -99,7 +99,7 @@ export function AugmentAccountsPage() {
       )}
 
       {activeTab === 'providers' && (
-        <PlatformProviderPanel platformModelType="augment" />
+        <PlatformProviderPanel modelType="augment" />
       )}
     </div>
   );

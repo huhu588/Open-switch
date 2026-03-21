@@ -1,4 +1,4 @@
-﻿// 使用统计相关的 Tauri commands
+// 使用统计相关的 Tauri commands
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -407,7 +407,7 @@ pub async fn reset_model_pricing(db: State<'_, Arc<Database>>) -> Result<(), Str
     conn.execute("DELETE FROM model_pricing", [])
         .map_err(|e| format!("清除失败: {e}"))?;
     
-    // 重新插入默认数据
+    // 重新插入默认数据（与 schema.rs seed_model_pricing 保持一致）
     let pricing_data = [
         // Claude 4.5 系列
         ("claude-opus-4-5-20251101", "Claude Opus 4.5", "5", "25", "0.50", "6.25"),
@@ -422,13 +422,22 @@ pub async fn reset_model_pricing(db: State<'_, Arc<Database>>) -> Result<(), Str
         // GPT-5.2 系列
         ("gpt-5.2", "GPT-5.2", "1.75", "14", "0.175", "0"),
         ("gpt-5.2-codex", "GPT-5.2 Codex", "1.75", "14", "0.175", "0"),
+        ("gpt-5.2-codex-xhigh", "GPT-5.2 Codex XHigh", "1.75", "14", "0.175", "0"),
+        ("gpt-5.2-codex-xhigh-fast", "GPT-5.2 Codex XHigh Fast", "1.75", "14", "0.175", "0"),
         // GPT-5.1 系列
         ("gpt-5.1", "GPT-5.1", "1.25", "10", "0.125", "0"),
         ("gpt-5.1-codex", "GPT-5.1 Codex", "1.25", "10", "0.125", "0"),
+        ("gpt-5.1-codex-max-high", "GPT-5.1 Codex Max High", "1.25", "10", "0.125", "0"),
+        ("gpt-5.1-codex-max-xhigh", "GPT-5.1 Codex Max XHigh", "1.25", "10", "0.125", "0"),
         // GPT-5 系列
         ("gpt-5", "GPT-5", "1.25", "10", "0.125", "0"),
         ("gpt-5-codex", "GPT-5 Codex", "1.25", "10", "0.125", "0"),
+        // GPT-5.4 系列
+        ("gpt-5.4", "GPT-5.4", "2.50", "10.00", "0.25", "0"),
+        ("gpt-5.4-codex", "GPT-5.4 Codex", "2.50", "10.00", "0.25", "0"),
+        ("gpt-5.4-xhigh", "GPT-5.4 XHigh", "2.50", "10.00", "0.25", "0"),
         // Gemini 3 系列
+        ("gemini-3-pro", "Gemini 3 Pro", "2", "12", "0.20", "0"),
         ("gemini-3-pro-preview", "Gemini 3 Pro Preview", "2", "12", "0.2", "0"),
         ("gemini-3-flash-preview", "Gemini 3 Flash Preview", "0.5", "3", "0.05", "0"),
         // Gemini 2.5 系列
@@ -440,6 +449,30 @@ pub async fn reset_model_pricing(db: State<'_, Arc<Database>>) -> Result<(), Str
         // Kimi 系列
         ("kimi-k2-thinking", "Kimi K2 Thinking", "4.00", "16.00", "1.00", "0"),
         ("kimi-k2-0905", "Kimi K2", "4.00", "16.00", "1.00", "0"),
+        // Cursor 系列
+        ("composer-2", "Composer 2", "0.50", "2.50", "0.05", "0.625"),
+        ("composer-1.5", "Composer 1.5", "3.50", "17.50", "0.35", "4.375"),
+        ("composer-1", "Composer 1", "1.25", "10.00", "0.125", "2.50"),
+        ("cursor-auto", "Cursor Auto", "1.25", "6.00", "0.25", "1.25"),
+        ("cursor-composer", "Cursor Composer", "0.50", "2.50", "0.05", "0.625"),
+        ("cursor-aiservice", "Cursor AI Service", "1.25", "6.00", "0.25", "1.25"),
+        ("default", "Cursor Default", "1.25", "6.00", "0.25", "1.25"),
+        // Claude 4.6 Cursor 变体
+        ("claude-4.6-opus-max-thinking", "Claude 4.6 Opus Max Thinking", "5", "25", "0.50", "6.25"),
+        ("claude-4.6-opus-max-thinking-fast", "Claude 4.6 Opus Max Fast", "5", "25", "0.50", "6.25"),
+        ("claude-4.6-opus-high-thinking", "Claude 4.6 Opus High Thinking", "5", "25", "0.50", "6.25"),
+        ("claude-4-6-opus-max", "Claude 4.6 Opus Max", "5", "25", "0.50", "6.25"),
+        // Claude 4.5 Cursor 变体
+        ("claude-4.5-opus-high-thinking", "Claude 4.5 Opus High Thinking", "5", "25", "0.50", "6.25"),
+        ("claude-4.5-opus-thinking", "Claude 4.5 Opus Thinking", "5", "25", "0.50", "6.25"),
+        ("claude-4-5-opus-thinking", "Claude 4.5 Opus Thinking", "5", "25", "0.50", "6.25"),
+        ("claude-4.5-sonnet-thinking", "Claude 4.5 Sonnet Thinking", "3", "15", "0.30", "3.75"),
+        ("claude-4.5-sonnet", "Claude 4.5 Sonnet", "3", "15", "0.30", "3.75"),
+        // Claude 4 Cursor 变体
+        ("claude-4-sonnet-thinking", "Claude 4 Sonnet Thinking", "3", "15", "0.30", "3.75"),
+        ("claude-sonnet-thinking", "Claude Sonnet Thinking", "3", "15", "0.30", "3.75"),
+        // Qwen 系列
+        ("qwen3.5-plus", "Qwen 3.5 Plus", "1.50", "6.00", "0.15", "0"),
     ];
     
     for (model_id, display_name, input, output, cache_read, cache_creation) in pricing_data {

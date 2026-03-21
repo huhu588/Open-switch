@@ -1,4 +1,4 @@
-﻿//! 代理服务器类型定义
+//! 代理服务器类型定义
 
 use serde::{Deserialize, Serialize};
 
@@ -67,6 +67,7 @@ pub enum AppType {
     Claude,
     Codex,
     Gemini,
+    CursorWelfare,
 }
 
 impl AppType {
@@ -75,6 +76,7 @@ impl AppType {
             AppType::Claude => "claude",
             AppType::Codex => "codex",
             AppType::Gemini => "gemini",
+            AppType::CursorWelfare => "cursor_welfare",
         }
     }
 }

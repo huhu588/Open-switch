@@ -1,12 +1,11 @@
 # ai switch
 
 > 版本: v0.16.3 | 更新: 2026-03-19
+> 本工缝合而成仅用于个人研究，不提供其他用途和商业用途
 
-一款**通用的 AI IDE 账号管理工具**，目前支持 **Antigravity**、**Codex**、**GitHub Copilot**、**Windsurf**、**Kiro**、**Cursor**、**Gemini Cli**、**CodeBuddy**、**CodeBuddy CN**、**WorkBuddy**、**Qoder** 和 **Trae**，并支持多账号多实例并行运行。
+一款**缝合他人开源项目的ai管理工具**，支持 **Antigravity**、**Codex**、**GitHub Copilot**、**Windsurf**、**Kiro**、**Cursor**、**Gemini Cli**、**CodeBuddy**、**CodeBuddy CN**、**WorkBuddy**、**Qoder** 和 **Trae**，**warp**等17款主流ai编程软件，并支持部分多账号多实例并行运行。
 
-> 本工具旨在帮助用户高效管理多个 AI IDE 账号，支持一键切换、配额监控、自动唤醒与多开实例并行运行，助您充分利用不同账号的资源。
-
-**功能**：一键切号 · 多账号管理 · 多开实例 · 配额监控 · 唤醒任务 · 设备指纹 · 插件联动 · API 网关 · 本地代理 · Sub2api 中转 · GitHub Copilot 管理 · Windsurf 管理 · Kiro 管理 · Cursor 管理 · Gemini Cli 管理 · CodeBuddy 管理 · CodeBuddy CN 管理 · WorkBuddy 管理 · Qoder 管理 · Trae 管理
+**功能**：一键切号 · 多账号管理 · 多开实例 · 配额监控 · 唤醒任务 · 设备指纹 · 插件联动 · API 网关 · 本地代理 · Sub2api 中转 · GitHub Copilot 管理 · Windsurf 管理 · Kiro 管理 · Cursor 管理 · Gemini Cli 管理 · CodeBuddy 管理 · CodeBuddy CN 管理 · WorkBuddy 管理 · Qoder 管理 · Trae 管理，对话获取，mcp/skills，规则等配置，快速安装及更新Claude code，codex，Gemini等，查看统计本地Token用量，未开发接口抓取统计。
 
 **语言**：支持 17 种语言
 
@@ -20,17 +19,21 @@
 3. https://github.com/qxcnm/Codex-Manager — Codex 反代（已集成至 Gateway 模块）
 4. https://github.com/Wei-Shaw/sub2api — Claude / OpenAI / Gemini / Antigravity 中转（已集成至 Sub2api 模块）
 5.https://github.com/libaxuan/cursor2api-go    cursor官网逆向出免费的模型
-6.（ cursor：  https://github.com/ibrahim317/cursor-chat-transfer）（https://github.com/lohasle/AI-Conversation-Viewer）
+6.（ cursor：  https://github.com/ibrahim317/cursor-chat-transfer）
+（https://github.com/lohasle/AI-Conversation-Viewer）
 获取ai（例如cursor，trae等）本地对话记录，可以迁移至另一台电脑   
-7.（https://github.com/junhoyeo/tokscale）（https://github.com/ramo-dev/tokwatch）可以获取ai本地token使用量
+7. 本地 Token 用量统计可参考 https://github.com/junhoyeo/tokscale 和 https://github.com/jugaad-lab/tokenmeter
+   本项目已内置“用量统计”页面，可扫描 Claude Code / Codex CLI / Gemini CLI / Cursor / Windsurf / Kiro / Antigravity / Warp / Augment / OpenCode 的本地日志或数据库，展示 Token、成本、模型与平台分布
 
 
 ## 安全性与隐私（简明版）
 
 下面是最关心的几个问题，尽量用直白语言说明：
 
-- **这是本地桌面工具**：不需要单独注册平台账号，也不依赖项目自建云端来存你的账号列表。
-- **数据主要保存在本机**：
+- **这是本地桌面工具，多个开源项目缝合，全程cursor完成，可能存在bug**
+- **数据主要保存在本机**
+- **不靠该项目牟利，可自行拉取修改**
+- **如果想打赏可以捐款给山区的孩子，他们比我更需要**
  
 
 ### 安装依赖
@@ -155,7 +158,8 @@ Open Switch/
 5.https://github.com/libaxuan/cursor2api-go    cursor官网逆向出免费的模型
 6.（ cursor：  https://github.com/ibrahim317/cursor-chat-transfer）（https://github.com/lohasle/AI-Conversation-Viewer）
 获取ai（例如cursor，trae等）本地对话记录，可以迁移至另一台电脑   
-7.（https://github.com/junhoyeo/tokscale）（https://github.com/ramo-dev/tokwatch）可以获取ai本地token使用量
+7. 本地 Token 用量统计可参考 https://github.com/junhoyeo/tokscale 和 https://github.com/jugaad-lab/tokenmeter
+   本项目已内置“用量统计”页面，可扫描 Claude Code / Codex CLI / Gemini CLI / Cursor / Windsurf / Kiro / Antigravity / Warp / Augment / OpenCode 的本地日志或数据库，展示 Token、成本、模型与平台分布
 
 感谢项目作者的开源贡献！如果这些项目对你有帮助，也请给他们点个 ⭐ Star 支持一下！
 

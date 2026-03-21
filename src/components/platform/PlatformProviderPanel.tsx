@@ -1,12 +1,12 @@
 import { useState, useEffect, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useTranslation } from 'react-i18next';
-import { Plus, Trash2, Zap, Loader2, Globe, Upload, Download, Search, Pencil, Package, Layers, ExternalLink, Star, ArrowLeft, Save, ChevronDown } from 'lucide-react';
+import { Plus, Trash2, Zap, Loader2, Globe, Upload, Download, Search, Pencil, Package, Layers, ExternalLink, Star, ArrowLeft, Save, ChevronDown, Database } from 'lucide-react';
 import { useProviderStore } from '../../stores/useProviderStore';
 import { useToast } from '../../hooks/useToast';
 import { ToastContainer } from '../Toast';
 
-export type ProviderModelType = 'claude' | 'codex' | 'gemini' | 'opencode' | 'openclaw';
+export type ProviderModelType = 'claude' | 'codex' | 'gemini' | 'opencode' | 'openclaw' | 'warp' | 'augment';
 
 type ProviderCategory = 'official' | 'cn_official' | 'aggregator' | 'third_party' | 'cloud_provider';
 type ApiFormat = 'anthropic' | 'openai_chat' | 'openai_responses';
@@ -149,6 +149,8 @@ const PROVIDER_PRESETS: Record<ProviderModelType, ProviderPreset[]> = {
     { name: 'PackyCode', base_url: 'https://www.packyapi.com/v1', description: 'PackyCode 中继', color: '#0ea5e9', category: 'third_party', websiteUrl: 'https://www.packyapi.com' },
     { name: 'Cubence', base_url: 'https://api.cubence.com/v1', description: 'Cubence 中继', color: '#4B0082', category: 'third_party', websiteUrl: 'https://cubence.com' },
   ],
+  warp: [],
+  augment: [],
 };
 
 function getLatencyQuality(urls: { latency_ms: number | null }[] | undefined) {
@@ -178,6 +180,13 @@ interface PlatformProviderPanelProps {
   modelType: ProviderModelType;
 }
 
+interface LocalProviderImportResult {
+  imported: number;
+  updated: number;
+  skipped: number;
+  provider_names: string[];
+}
+
 export function PlatformProviderPanel({ modelType }: PlatformProviderPanelProps) {
   const { t } = useTranslation();
   const store = useProviderStore();
@@ -204,6 +213,7 @@ export function PlatformProviderPanel({ modelType }: PlatformProviderPanelProps)
   const [showFetchDialog, setShowFetchDialog] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [testingProvider, setTestingProvider] = useState<string | null>(null);
+  const [importingLocal, setImportingLocal] = useState(false);
 
   const filteredProviders = useMemo(() => {
     let list = store.providers.filter(p => (p.model_type || 'claude') === modelType);
@@ -355,6 +365,44 @@ export function PlatformProviderPanel({ modelType }: PlatformProviderPanelProps)
       } catch (err) { toast.error(t('providers.importFailed', '导入失败: ') + String(err)); }
     };
     input.click();
+  };
+
+  const handleImportLocalProviders = async () => {
+    setImportingLocal(true);
+    try {
+      const result = await invoke<LocalProviderImportResult>('import_local_provider_configs', { modelType });
+      await store.loadProviders();
+      if (result.provider_names[0]) {
+        await store.selectProvider(result.provider_names[0]);
+      }
+
+      const changedCount = result.imported + result.updated;
+      if (changedCount === 0) {
+        if (result.skipped > 0) {
+          toast.success(t('providers.localImportNoChanges', '本机 Provider 已是最新'));
+        } else {
+          toast.warning(t('providers.localImportEmpty', '未检测到可导入的本机 Provider 配置'));
+        }
+        return;
+      }
+
+      if (result.updated > 0) {
+        toast.success(
+          t(
+            'providers.localImportUpdated',
+            `已同步 ${changedCount} 个本机 Provider（新增 ${result.imported}，更新 ${result.updated}）`,
+          ),
+        );
+      } else {
+        toast.success(
+          t('providers.localImportSuccess', `已导入 ${result.imported} 个本机 Provider`),
+        );
+      }
+    } catch (e) {
+      toast.error(t('providers.localImportFailed', '本机导入失败: ') + String(e));
+    } finally {
+      setImportingLocal(false);
+    }
   };
 
   const currentPresets = PROVIDER_PRESETS[modelType] || [];
@@ -623,6 +671,9 @@ export function PlatformProviderPanel({ modelType }: PlatformProviderPanelProps)
       <ToastContainer toasts={toast.toasts} />
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
+        <button className="btn btn-sm btn-ghost" onClick={handleImportLocalProviders} disabled={importingLocal} title={t('providers.importLocal', '从本机导入 Provider')}>
+          {importingLocal ? <Loader2 size={14} className="animate-spin" /> : <Database size={14} />} {t('providers.importLocalShort', '本机导入')}
+        </button>
         <button className="btn btn-sm btn-ghost" onClick={handleImportProviders} title={t('providers.import', '导入 Provider')}>
           <Download size={14} /> {t('providers.import', '导入')}
         </button>

@@ -189,7 +189,15 @@ export function DevEnvPage() {
                       </div>
                       <div className="flex items-center gap-4 mt-1 text-xs opacity-50">
                         <span>{t('devenv.version', '版本')}: <span className="font-mono">{env.current_version || '-'}</span></span>
-                        <span>{env.version_manager.name}: {env.version_manager.installed ? <span className="text-success">v{env.version_manager.version || '?'}</span> : <span>{t('devenv.notInstalled', '未安装')}</span>}</span>
+                        <span>
+                          {env.version_manager.name}: {env.version_manager.installed ? (
+                            env.version_manager.version ? (
+                              <span className="text-success">v{env.version_manager.version}</span>
+                            ) : (
+                              <span className="text-success">{t('devenv.installed', '已安装')}</span>
+                            )
+                          ) : <span>{t('devenv.notInstalled', '未安装')}</span>}
+                        </span>
                       </div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">

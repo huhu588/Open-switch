@@ -1,9 +1,17 @@
-﻿// Provider 相关的 Tauri commands
+// Provider 相关的 Tauri commands
 
 use serde::{Deserialize, Serialize};
 use tauri::State;
+use std::collections::HashMap;
+use std::fs;
+use std::path::PathBuf;
 use std::sync::Mutex;
 
+use crate::modules::opencode_config::claude_code_manager::ClaudeCodeConfigManager;
+use crate::modules::opencode_config::codex_manager::CodexConfigManager;
+use crate::modules::opencode_config::gemini_manager::GeminiConfigManager;
+use crate::modules::opencode_config::models::OpenCodeModelInfo;
+use crate::modules::opencode_config::openclaw_manager::OpenClawConfigManager;
 use crate::modules::opencode_config::ConfigManager;
 use crate::opencode_error::AppError;
 
@@ -403,6 +411,461 @@ pub struct ImportDeployedProviderInput {
     pub model_type: String, // 用户选择的模型类型：claude/codex/gemini
 }
 
+/// 本机 Provider 导入结果
+#[derive(Debug, Clone, Serialize)]
+pub struct LocalProviderImportResult {
+    pub imported: usize,
+    pub updated: usize,
+    pub skipped: usize,
+    pub provider_names: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+struct LocalProviderSeed {
+    name: String,
+    base_url: String,
+    api_key: String,
+    description: Option<String>,
+    models: Vec<String>,
+}
+
+enum LocalProviderImportAction {
+    Imported(String),
+    Updated(String),
+    Skipped,
+}
+
+fn push_unique_model(models: &mut Vec<String>, value: Option<String>) {
+    let Some(value) = value else {
+        return;
+    };
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return;
+    }
+    if !models.iter().any(|item| item == trimmed) {
+        models.push(trimmed.to_string());
+    }
+}
+
+fn normalize_description(value: Option<String>) -> Option<String> {
+    value.and_then(|raw| {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    })
+}
+
+fn default_imported_model(model_id: &str) -> OpenCodeModelInfo {
+    OpenCodeModelInfo {
+        id: model_id.to_string(),
+        name: model_id.to_string(),
+        limit: None,
+        reasoning: None,
+        variants: None,
+        options: None,
+        reasoning_effort: None,
+        thinking_budget: None,
+        model_detection: None,
+    }
+}
+
+fn parse_env_file(path: &PathBuf) -> Result<HashMap<String, String>, String> {
+    let content = fs::read_to_string(path)
+        .map_err(|e| format!("读取 {} 失败: {}", path.display(), e))?;
+
+    let mut env = HashMap::new();
+    for raw_line in content.lines() {
+        let line = raw_line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        if let Some((key, value)) = line.split_once('=') {
+            let key = key.trim();
+            let value = value.trim().trim_matches('"').trim_matches('\'');
+            if !key.is_empty() {
+                env.insert(key.to_string(), value.to_string());
+            }
+        }
+    }
+
+    Ok(env)
+}
+
+fn first_env_value(env: &HashMap<String, String>, keys: &[&str]) -> Option<String> {
+    for key in keys {
+        if let Some(value) = env.get(*key) {
+            let trimmed = value.trim();
+            if !trimmed.is_empty() {
+                return Some(trimmed.to_string());
+            }
+        }
+    }
+    None
+}
+
+fn first_json_string(
+    map: &serde_json::Map<String, serde_json::Value>,
+    keys: &[&str],
+) -> Option<String> {
+    for key in keys {
+        if let Some(value) = map.get(*key).and_then(|item| item.as_str()) {
+            let trimmed = value.trim();
+            if !trimmed.is_empty() {
+                return Some(trimmed.to_string());
+            }
+        }
+    }
+    None
+}
+
+fn build_claude_like_seed(
+    env: &HashMap<String, String>,
+    name: &str,
+    description: &str,
+    fallback_base_url: &str,
+    extra_models: &[String],
+) -> Option<LocalProviderSeed> {
+    let api_key = first_env_value(env, &["ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY"])
+        .unwrap_or_default();
+    let base_url = first_env_value(env, &["ANTHROPIC_BASE_URL"])
+        .unwrap_or_else(|| fallback_base_url.to_string());
+
+    let mut models = Vec::new();
+    push_unique_model(&mut models, first_env_value(env, &["ANTHROPIC_MODEL"]));
+    push_unique_model(
+        &mut models,
+        first_env_value(env, &["ANTHROPIC_REASONING_MODEL"]),
+    );
+    push_unique_model(
+        &mut models,
+        first_env_value(env, &["ANTHROPIC_DEFAULT_HAIKU_MODEL"]),
+    );
+    push_unique_model(
+        &mut models,
+        first_env_value(env, &["ANTHROPIC_DEFAULT_SONNET_MODEL"]),
+    );
+    push_unique_model(
+        &mut models,
+        first_env_value(env, &["ANTHROPIC_DEFAULT_OPUS_MODEL"]),
+    );
+    for model in extra_models {
+        push_unique_model(&mut models, Some(model.clone()));
+    }
+
+    let has_material = !api_key.is_empty()
+        || env.contains_key("ANTHROPIC_BASE_URL")
+        || !models.is_empty();
+    if !has_material {
+        return None;
+    }
+
+    Some(LocalProviderSeed {
+        name: name.to_string(),
+        base_url,
+        api_key,
+        description: Some(description.to_string()),
+        models,
+    })
+}
+
+fn parse_openclaw_json_seed(path: &PathBuf) -> Result<Option<LocalProviderSeed>, String> {
+    if !path.exists() {
+        return Ok(None);
+    }
+
+    let content = fs::read_to_string(path)
+        .map_err(|e| format!("读取 {} 失败: {}", path.display(), e))?;
+    let content = content.trim_start_matches('\u{feff}');
+    let json: serde_json::Value = serde_json::from_str(content)
+        .map_err(|e| format!("解析 {} 失败: {}", path.display(), e))?;
+
+    let mut env = HashMap::new();
+    if let Some(env_obj) = json.get("env").and_then(|value| value.as_object()) {
+        if let Some(api_key) = first_json_string(env_obj, &["ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY"]) {
+            env.insert("ANTHROPIC_API_KEY".to_string(), api_key);
+        }
+        if let Some(base_url) = first_json_string(env_obj, &["ANTHROPIC_BASE_URL"]) {
+            env.insert("ANTHROPIC_BASE_URL".to_string(), base_url);
+        }
+        if let Some(model) = first_json_string(env_obj, &["ANTHROPIC_MODEL"]) {
+            env.insert("ANTHROPIC_MODEL".to_string(), model);
+        }
+        if let Some(model) = first_json_string(env_obj, &["ANTHROPIC_REASONING_MODEL"]) {
+            env.insert("ANTHROPIC_REASONING_MODEL".to_string(), model);
+        }
+        if let Some(model) = first_json_string(env_obj, &["ANTHROPIC_DEFAULT_HAIKU_MODEL"]) {
+            env.insert("ANTHROPIC_DEFAULT_HAIKU_MODEL".to_string(), model);
+        }
+        if let Some(model) = first_json_string(env_obj, &["ANTHROPIC_DEFAULT_SONNET_MODEL"]) {
+            env.insert("ANTHROPIC_DEFAULT_SONNET_MODEL".to_string(), model);
+        }
+        if let Some(model) = first_json_string(env_obj, &["ANTHROPIC_DEFAULT_OPUS_MODEL"]) {
+            env.insert("ANTHROPIC_DEFAULT_OPUS_MODEL".to_string(), model);
+        }
+    }
+
+    let mut extra_models = Vec::new();
+    if let Some(model) = json
+        .pointer("/agents/defaults/model/primary")
+        .and_then(|value| value.as_str())
+    {
+        push_unique_model(&mut extra_models, Some(model.to_string()));
+    }
+
+    Ok(build_claude_like_seed(
+        &env,
+        "OpenClaw Local",
+        "从本机 OpenClaw 配置导入",
+        "https://api.anthropic.com",
+        &extra_models,
+    ))
+}
+
+fn collect_claude_local_seeds() -> Result<Vec<LocalProviderSeed>, String> {
+    let manager = ClaudeCodeConfigManager::new()?;
+    let settings = manager.read_settings()?;
+    Ok(build_claude_like_seed(
+        &settings.env,
+        "Claude Code Local",
+        "从本机 Claude Code 配置导入",
+        "https://api.anthropic.com",
+        &[],
+    )
+    .into_iter()
+    .collect())
+}
+
+fn collect_codex_local_seeds() -> Result<Vec<LocalProviderSeed>, String> {
+    let manager = CodexConfigManager::new()?;
+    let providers = manager.get_model_providers()?;
+    let api_key = manager.get_api_key()?.unwrap_or_default();
+
+    let mut seeds = Vec::new();
+    for (id, provider) in providers {
+        let provider_name = if provider.name.trim().is_empty() {
+            id
+        } else {
+            provider.name
+        };
+        let suffix = provider
+            .env_key
+            .as_deref()
+            .map(|env_key| format!("，env_key={env_key}"))
+            .unwrap_or_default();
+        seeds.push(LocalProviderSeed {
+            name: format!("Codex Local - {}", provider_name),
+            base_url: if provider.base_url.trim().is_empty() {
+                "https://api.openai.com/v1".to_string()
+            } else {
+                provider.base_url
+            },
+            api_key: api_key.clone(),
+            description: Some(format!("从本机 Codex 配置导入{}", suffix)),
+            models: Vec::new(),
+        });
+    }
+
+    Ok(seeds)
+}
+
+fn collect_gemini_local_seeds() -> Result<Vec<LocalProviderSeed>, String> {
+    let manager = GeminiConfigManager::new()?;
+    let api_key = manager.get_api_key()?.unwrap_or_default();
+    let base_url = manager
+        .get_base_url()?
+        .unwrap_or_else(|| "https://generativelanguage.googleapis.com/v1beta".to_string());
+    let model = manager.get_model()?;
+
+    let has_material = !api_key.is_empty() || model.is_some();
+    if !has_material {
+        return Ok(Vec::new());
+    }
+
+    let mut models = Vec::new();
+    push_unique_model(&mut models, model);
+
+    Ok(vec![LocalProviderSeed {
+        name: "Gemini Local".to_string(),
+        base_url,
+        api_key,
+        description: Some("从本机 Gemini 配置导入".to_string()),
+        models,
+    }])
+}
+
+fn collect_openclaw_local_seeds() -> Result<Vec<LocalProviderSeed>, String> {
+    let manager = OpenClawConfigManager::new()?;
+    let config_dir = manager.get_config_dir().clone();
+    let json_candidates = [
+        config_dir.join("openclaw.json"),
+        config_dir.join("settings.json"),
+        config_dir.join("settings.local.json"),
+        config_dir.join("config.json"),
+    ];
+
+    for candidate in json_candidates {
+        if let Some(seed) = parse_openclaw_json_seed(&candidate)? {
+            return Ok(vec![seed]);
+        }
+    }
+
+    let env_path = config_dir.join(".env");
+    if env_path.exists() {
+        let env = parse_env_file(&env_path)?;
+        if let Some(seed) = build_claude_like_seed(
+            &env,
+            "OpenClaw Local",
+            "从本机 OpenClaw 配置导入",
+            "https://api.anthropic.com",
+            &[],
+        ) {
+            return Ok(vec![seed]);
+        }
+    }
+
+    Ok(Vec::new())
+}
+
+fn upsert_local_provider(
+    manager: &mut ConfigManager,
+    target_model_type: &str,
+    seed: LocalProviderSeed,
+) -> Result<LocalProviderImportAction, String> {
+    let description = normalize_description(seed.description);
+    let mut models = Vec::new();
+    for model in seed.models {
+        push_unique_model(&mut models, Some(model));
+    }
+
+    let existing = manager.opencode().get_provider(&seed.name)?;
+    if let Some(existing_provider) = existing {
+        let needs_base_url =
+            !seed.base_url.trim().is_empty() && existing_provider.options.base_url != seed.base_url;
+        let needs_api_key =
+            !seed.api_key.trim().is_empty() && existing_provider.options.api_key != seed.api_key;
+        let needs_description = description
+            .as_deref()
+            .map(|desc| existing_provider.metadata.description.as_deref() != Some(desc))
+            .unwrap_or(false);
+        let needs_model_type =
+            existing_provider.model_type.as_deref() != Some(target_model_type);
+
+        let mut touched = false;
+        if needs_base_url || needs_api_key || needs_description || needs_model_type {
+            manager.opencode_mut().update_provider_metadata(
+                &seed.name,
+                needs_base_url.then(|| seed.base_url.clone()),
+                needs_api_key.then(|| seed.api_key.clone()),
+                None,
+                needs_description.then(|| description.clone()).flatten(),
+                needs_model_type.then(|| target_model_type.to_string()),
+            )?;
+            touched = true;
+        }
+
+        for model_id in models {
+            if existing_provider.models.contains_key(&model_id) {
+                continue;
+            }
+            manager
+                .opencode_mut()
+                .add_model(&seed.name, model_id.clone(), default_imported_model(&model_id))?;
+            touched = true;
+        }
+
+        return Ok(if touched {
+            LocalProviderImportAction::Updated(seed.name)
+        } else {
+            LocalProviderImportAction::Skipped
+        });
+    }
+
+    manager.opencode_mut().add_provider(
+        seed.name.clone(),
+        seed.base_url.clone(),
+        seed.api_key.clone(),
+        None,
+        description.clone(),
+        Some(target_model_type.to_string()),
+        false,
+    )?;
+
+    for model_id in models {
+        manager
+            .opencode_mut()
+            .add_model(&seed.name, model_id.clone(), default_imported_model(&model_id))?;
+    }
+
+    Ok(LocalProviderImportAction::Imported(seed.name))
+}
+
+fn import_seed_batch(
+    manager: &mut ConfigManager,
+    target_model_type: &str,
+    seeds: Vec<LocalProviderSeed>,
+) -> Result<LocalProviderImportResult, String> {
+    let mut result = LocalProviderImportResult {
+        imported: 0,
+        updated: 0,
+        skipped: 0,
+        provider_names: Vec::new(),
+    };
+
+    for seed in seeds {
+        match upsert_local_provider(manager, target_model_type, seed)? {
+            LocalProviderImportAction::Imported(name) => {
+                result.imported += 1;
+                result.provider_names.push(name);
+            }
+            LocalProviderImportAction::Updated(name) => {
+                result.updated += 1;
+                result.provider_names.push(name);
+            }
+            LocalProviderImportAction::Skipped => {
+                result.skipped += 1;
+            }
+        }
+    }
+
+    Ok(result)
+}
+
+fn import_opencode_local_providers(
+    manager: &mut ConfigManager,
+) -> Result<LocalProviderImportResult, String> {
+    let config = manager.opencode().read_config()?;
+    let mut result = LocalProviderImportResult {
+        imported: 0,
+        updated: 0,
+        skipped: 0,
+        provider_names: Vec::new(),
+    };
+
+    for (name, provider) in config.provider {
+        if provider.model_type.is_some() {
+            result.skipped += 1;
+            continue;
+        }
+
+        manager.opencode_mut().update_provider_metadata(
+            &name,
+            None,
+            None,
+            None,
+            None,
+            Some("opencode".to_string()),
+        )?;
+        result.updated += 1;
+        result.provider_names.push(name);
+    }
+
+    Ok(result)
+}
+
 /// 根据服务商名称和模型列表自动推断 model_type
 fn infer_model_type(provider_name: &str, models: &std::collections::HashMap<String, crate::modules::opencode_config::OpenCodeModelInfo>) -> Option<String> {
     // 优先根据 provider 名称推断（不区分大小写）
@@ -478,6 +941,41 @@ pub fn import_deployed_provider(
     manager.opencode_mut().write_config(&config)?;
     
     Ok(())
+}
+
+/// 从本机 CLI / 配置文件导入 Provider 到当前平台分类
+#[tauri::command]
+pub fn import_local_provider_configs(
+    model_type: String,
+    config_manager: State<'_, Mutex<ConfigManager>>,
+) -> Result<LocalProviderImportResult, AppError> {
+    let mut manager = config_manager
+        .lock()
+        .map_err(|e| AppError::Custom(e.to_string()))?;
+
+    let result = match model_type.as_str() {
+        "claude" => {
+            let seeds = collect_claude_local_seeds().map_err(AppError::Custom)?;
+            import_seed_batch(&mut manager, "claude", seeds)
+        }
+        "codex" => {
+            let seeds = collect_codex_local_seeds().map_err(AppError::Custom)?;
+            import_seed_batch(&mut manager, "codex", seeds)
+        }
+        "gemini" => {
+            let seeds = collect_gemini_local_seeds().map_err(AppError::Custom)?;
+            import_seed_batch(&mut manager, "gemini", seeds)
+        }
+        "opencode" => import_opencode_local_providers(&mut manager),
+        "openclaw" => {
+            let seeds = collect_openclaw_local_seeds().map_err(AppError::Custom)?;
+            import_seed_batch(&mut manager, "openclaw", seeds)
+        }
+        other => Err(format!("不支持的 Provider 类型: {}", other)),
+    }
+    .map_err(AppError::Custom)?;
+
+    Ok(result)
 }
 
 // ============================================================================
@@ -615,4 +1113,133 @@ pub fn auto_select_fastest_base_url(
     manager.opencode_mut().write_config(&config)?;
     
     Ok(selected_url)
+}
+
+// ============================================================================
+// Cursor Welfare 一键应用到各工具
+// ============================================================================
+
+/// 一键应用到各工具的参数
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApplyToToolsInput {
+    pub api_key: String,
+    pub proxy_port: u16,
+    #[serde(default)]
+    pub tools: Vec<String>,
+}
+
+/// 各工具应用结果
+#[derive(Debug, Serialize)]
+pub struct ApplyToToolsResult {
+    pub success: Vec<String>,
+    pub failed: Vec<ApplyToolError>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ApplyToolError {
+    pub tool: String,
+    pub error: String,
+}
+
+/// 一键将 Cursor 福利 Provider 应用到多个 CLI 工具
+#[tauri::command]
+pub async fn apply_cursor_welfare_to_tools(
+    input: ApplyToToolsInput,
+) -> Result<ApplyToToolsResult, String> {
+    use crate::modules::opencode_config::claude_code_manager::{
+        ClaudeCodeConfigManager, ClaudeCodeProvider,
+    };
+    use crate::modules::opencode_config::codex_manager::{CodexConfigManager, CodexProvider};
+    use crate::modules::opencode_config::gemini_manager::{GeminiConfigManager, GeminiProvider};
+    use crate::modules::opencode_config::openclaw_manager::{
+        OpenClawConfigManager, OpenClawProvider,
+    };
+
+    let proxy_base = format!("http://localhost:{}", input.proxy_port);
+    let tools = if input.tools.is_empty() {
+        vec![
+            "claude".to_string(),
+            "codex".to_string(),
+            "gemini".to_string(),
+            "opencode".to_string(),
+            "openclaw".to_string(),
+        ]
+    } else {
+        input.tools
+    };
+
+    let mut result = ApplyToToolsResult {
+        success: Vec::new(),
+        failed: Vec::new(),
+    };
+
+    for tool in &tools {
+        let res = match tool.as_str() {
+            "claude" => {
+                let manager = ClaudeCodeConfigManager::new();
+                manager.and_then(|m| {
+                    m.apply_provider(&ClaudeCodeProvider {
+                        name: "Cursor Welfare".to_string(),
+                        api_key: input.api_key.clone(),
+                        base_url: Some(format!("{}/cursor-welfare", proxy_base)),
+                        model: Some("claude-sonnet-4.6".to_string()),
+                        enabled: true,
+                        description: Some("Cursor 福利自动配置".to_string()),
+                    })
+                })
+            }
+            "codex" => {
+                let manager = CodexConfigManager::new();
+                manager.and_then(|m| {
+                    m.apply_provider(&CodexProvider {
+                        name: "Cursor Welfare".to_string(),
+                        api_key: input.api_key.clone(),
+                        base_url: format!("{}/cursor-welfare", proxy_base),
+                        env_key: None,
+                        enabled: true,
+                        description: Some("Cursor 福利自动配置".to_string()),
+                    })
+                })
+            }
+            "gemini" => {
+                let manager = GeminiConfigManager::new();
+                manager.and_then(|m| {
+                    m.apply_provider(&GeminiProvider {
+                        name: "Cursor Welfare".to_string(),
+                        api_key: input.api_key.clone(),
+                        base_url: Some(format!("{}/cursor-welfare", proxy_base)),
+                        model: Some("claude-sonnet-4.6".to_string()),
+                        enabled: true,
+                        description: Some("Cursor 福利自动配置".to_string()),
+                    })
+                })
+            }
+            "opencode" => {
+                Ok(())
+            }
+            "openclaw" => {
+                let manager = OpenClawConfigManager::new();
+                manager.and_then(|m| {
+                    m.apply_provider(&OpenClawProvider {
+                        name: "Cursor Welfare".to_string(),
+                        base_url: format!("{}/cursor-welfare/v1", proxy_base),
+                        api_key: Some(input.api_key.clone()),
+                        model: Some("claude-sonnet-4.6".to_string()),
+                    })
+                })
+            }
+            _ => Err(format!("未知工具: {}", tool)),
+        };
+
+        match res {
+            Ok(()) => result.success.push(tool.clone()),
+            Err(e) => result.failed.push(ApplyToolError {
+                tool: tool.clone(),
+                error: e,
+            }),
+        }
+    }
+
+    Ok(result)
 }

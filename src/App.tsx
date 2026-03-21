@@ -144,6 +144,9 @@ const ToolStatusPage = lazy(() =>
 const SessionsPage = lazy(() =>
   import('./pages/SessionsPage').then((module) => ({ default: module.SessionsPage })),
 );
+const CursorWelfarePage = lazy(() =>
+  import('./pages/CursorWelfarePage').then((module) => ({ default: module.CursorWelfarePage })),
+);
 const PlatformLayoutModal = lazy(() =>
   import('./components/PlatformLayoutModal').then((module) => ({
     default: module.PlatformLayoutModal,
@@ -2439,6 +2442,7 @@ function App() {
           {page === 'ohmy' && <OhMyPage />}
           {page === 'tool-status' && <ToolStatusPage />}
           {page === 'sessions' && <SessionsPage />}
+          {page === 'cursor-welfare' && <CursorWelfarePage />}
           {page === 'settings' && <SettingsPage />}
         </Suspense>
         </ErrorBoundary>

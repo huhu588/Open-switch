@@ -1,4 +1,4 @@
-﻿//! HTTP 代理服务器
+//! HTTP 代理服务器
 //!
 //! 基于 Axum 的 HTTP 服务器，处理代理请求
 
@@ -158,6 +158,12 @@ impl ProxyServer {
             // Gemini API
             .route("/v1beta/*path", post(handlers::handle_gemini))
             .route("/gemini/v1beta/*path", post(handlers::handle_gemini))
+            // Cursor Welfare API (直接 OpenAI 格式转发)
+            .route("/cursor-welfare/v1/chat/completions", post(handlers::handle_cursor_welfare))
+            // Cursor Welfare Claude 协议适配（Anthropic -> OpenAI -> cursor2api-go）
+            .route("/cursor-welfare/v1/messages", post(handlers::handle_cursor_welfare_claude_compat))
+            // Cursor Welfare Gemini 协议适配（Gemini -> OpenAI -> cursor2api-go）
+            .route("/cursor-welfare/v1beta/*path", post(handlers::handle_cursor_welfare_gemini_compat))
             // 提高请求体大小限制
             .layer(DefaultBodyLimit::max(200 * 1024 * 1024))
             .layer(cors)

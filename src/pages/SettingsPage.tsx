@@ -123,6 +123,8 @@ const FALLBACK_PLATFORM_SETTINGS_ORDER: Record<PlatformId, number> = {
   'claude-code': 12,
   opencode: 13,
   openclaw: 14,
+  warp: 15,
+  augment: 16,
 };
 type UpdateCheckSource = 'auto' | 'manual';
 type UpdateCheckFinishedDetail = {

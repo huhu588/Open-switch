@@ -127,7 +127,12 @@ export function McpPage() {
 
   const handleSyncToApps = async () => {
     try {
-      await invoke('sync_mcp_to_apps');
+      await invoke('sync_mcp_to_apps', {
+        input: {
+          server_names: [],
+          targets: ['opencode', 'claudecode', 'codex', 'gemini', 'cursor'],
+        },
+      });
       await loadServers();
       toast.success(t('mcp.syncSuccess', '同步完成'));
     } catch (e) { toast.error(String(e)); }
